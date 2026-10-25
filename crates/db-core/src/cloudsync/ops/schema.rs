@@ -91,9 +91,7 @@ pub(crate) async fn interruptible_init<C: OwnedSqliteConnection>(
     init_flags: Option<i64>,
     interrupt: &CloudsyncInterruptHandle,
 ) -> Result<(), anlg_cloudsync::Error> {
-    sqlx::query("SAVEPOINT cloudsync_interruptible_init")
-        .execute(connection.connection().await?)
-        .await?;
+    connection.begin_transaction().await?;
     let result: Result<(), anlg_cloudsync::Error> = async {
         let registration = interrupt.register(connection.connection().await?).await?;
         let result =
@@ -104,14 +102,7 @@ pub(crate) async fn interruptible_init<C: OwnedSqliteConnection>(
     .await;
     // The native function's own rollback can itself be interrupted. Roll back
     // again after removing the interrupt registration so partial triggers cannot escape.
-    if result.is_err() {
-        sqlx::query("ROLLBACK TO cloudsync_interruptible_init")
-            .execute(connection.connection().await?)
-            .await?;
-    }
-    sqlx::query("RELEASE cloudsync_interruptible_init")
-        .execute(connection.connection().await?)
-        .await?;
+    connection.finish_transaction(result.is_ok()).await?;
     result
 }
 
