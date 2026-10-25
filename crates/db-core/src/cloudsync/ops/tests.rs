@@ -469,6 +469,12 @@ async fn populated_table_init_interrupt_drains_before_local_write() {
         "immediate local write remained blocked after native CloudSync table initialization interruption",
     )
     .unwrap();
+    assert!(tracking_schema(&db).await.is_empty());
+    db.cloudsync_init("items", None, None).await.unwrap();
+    sqlx::query("INSERT INTO items (id, value) VALUES ('after-retry', 'local')")
+        .execute(db.pool())
+        .await
+        .expect("local write failed after retrying interrupted table initialization");
 }
 
 #[cfg(any(
