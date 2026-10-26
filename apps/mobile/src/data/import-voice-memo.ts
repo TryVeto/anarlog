@@ -88,6 +88,7 @@ async function importAsset(
     throwIfAborted(options?.signal);
 
     await catalogSessionAudio(sessionId, {
+      source: "import",
       filename,
       contentType:
         asset.mimeType ??

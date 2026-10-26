@@ -76,6 +76,7 @@ export async function recoverInterruptedRecordings(
       const sizeBytes = repairInterruptedWav(file);
       if (sizeBytes === null) continue;
       await catalogSessionAudio(session.id, {
+        source: "recording",
         filename: "audio.wav",
         contentType: "audio/wav",
       });

@@ -21,7 +21,7 @@ INSERT INTO session_attachments (
   source_id, metadata_json, cloud_sync_enabled, created_at, updated_at, deleted_at
 )
 SELECT ?, workspace_id, id, ?, ?, ?, ?, ?, 'local_file', '',
-  'session_audio', 'primary', json_object('transcript_status', 'processing', 'capture_started_at_ms', json_extract(metadata_json, '$.mobile_capture_started_at_ms')), 1, ?, ?, NULL
+  'session_audio', 'primary', json_object('transcript_status', 'processing', 'capture_started_at_ms', CASE WHEN ? THEN json_extract(metadata_json, '$.mobile_capture_started_at_ms') ELSE NULL END), 1, ?, ?, NULL
 FROM sessions
 WHERE id = ? AND deleted_at IS NULL
 ON CONFLICT(id) DO UPDATE SET
@@ -67,6 +67,7 @@ export async function recordSessionCaptureStart(sessionId: string) {
 export async function catalogSessionAudio(
   sessionId: string,
   file: {
+    source: "recording" | "import";
     filename: string;
     contentType: string;
     signal?: AbortSignal;
@@ -98,6 +99,7 @@ export async function catalogSessionAudio(
         file.contentType,
         verified.sizeBytes,
         verified.sha256,
+        file.source === "recording" ? 1 : 0,
         now,
         now,
         sessionId,

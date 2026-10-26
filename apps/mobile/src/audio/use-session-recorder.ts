@@ -389,6 +389,7 @@ export function useSessionRecorder(
       const live = liveRef.current;
       writer.finalize();
       await catalogSessionAudio(sessionId, {
+        source: "recording",
         filename: "audio.wav",
         contentType: "audio/wav",
       });
