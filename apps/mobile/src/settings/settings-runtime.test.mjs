@@ -58,7 +58,12 @@ const modules = {
     export async function execute(sql, params = []) { return fixture.db.prepare(sql).all(...params); }
     export async function executeTransaction(statements) {
       fixture.db.exec('BEGIN');
-      try { const results = statements.map(({sql, params}) => fixture.db.prepare(sql).run(...params).changes); fixture.db.exec('COMMIT'); return results; }
+      try { const results = statements.map(({sql, params, expectedRowsAffected}) => {
+        const changed = fixture.db.prepare(sql).run(...params).changes;
+        if (expectedRowsAffected !== undefined && changed !== expectedRowsAffected)
+          throw new Error("This note changed while generating its summary. Please try again.");
+        return changed;
+      }); fixture.db.exec('COMMIT'); return results; }
       catch (error) { fixture.db.exec('ROLLBACK'); throw error; }
     }
     export function useLiveQuery() { throw new Error('Unexpected React hook in runtime test'); }`,
@@ -1307,7 +1312,7 @@ test("oversized provider audio is rejected before sending a request", async () =
 function createNote() {
   fixture.db
     .prepare(
-      "INSERT INTO sessions (id, workspace_id) VALUES ('note-1', 'workspace-a')",
+      "INSERT INTO sessions (id, workspace_id, title) VALUES ('note-1', 'workspace-a', 'Planning')",
     )
     .run();
   fixture.db
@@ -2020,6 +2025,93 @@ test("Azure model discovery normalizes the configured endpoint", async () => {
       "https://azure.example.test/openai/models?api-version=2024-10-21",
       suffix || "root",
     );
+  }
+});
+
+test("mobile summaries persist generated titles without overwriting concurrent renames or partially saving", async () => {
+  signedInWith({
+    subscription_status: "active",
+    entitlements: ["hyprnote_pro"],
+  });
+  for (const scenario of [
+    "automatic",
+    "manual",
+    "renamed",
+    "failed-title",
+    "stale-summary",
+    "failed-save",
+  ]) {
+    fixture.db.exec("DELETE FROM session_documents; DELETE FROM sessions;");
+    createNote();
+    fixture.db
+      .prepare("UPDATE sessions SET title = '' WHERE id = 'note-1'")
+      .run();
+    fixture.respond = (_url, options) => {
+      if (options.headers["x-char-task"] === "title") {
+        if (scenario === "failed-title")
+          throw new Error("Title request failed");
+        if (scenario === "renamed")
+          fixture.db
+            .prepare(
+              "UPDATE sessions SET title = 'My title' WHERE id = 'note-1'",
+            )
+            .run();
+        if (scenario === "failed-save")
+          fixture.db.exec(
+            "CREATE TRIGGER reject_generated_title BEFORE UPDATE OF title ON sessions BEGIN SELECT RAISE(ABORT, 'Title write failed'); END;",
+          );
+        if (scenario === "stale-summary")
+          fixture.db
+            .prepare(
+              "INSERT INTO session_documents (id, session_id, kind, body) VALUES ('other-summary', 'note-1', 'summary', 'My summary')",
+            )
+            .run();
+        return Response.json({
+          choices: [{ message: { content: "Mobile launch planning" } }],
+        });
+      }
+      return Response.json({
+        choices: [
+          { message: { content: "## Decisions\nShip the mobile app." } },
+        ],
+      });
+    };
+    const result = summarizeSession("note-1", {
+      automatic: scenario !== "manual",
+    });
+    if (["failed-title", "stale-summary", "failed-save"].includes(scenario)) {
+      await assert.rejects(result);
+      assert.equal(
+        fixture.db
+          .prepare("SELECT title FROM sessions WHERE id = 'note-1'")
+          .get().title,
+        "",
+      );
+      assert.equal(
+        fixture.db
+          .prepare(
+            "SELECT count(*) AS count FROM session_documents WHERE id = 'summary:note-1'",
+          )
+          .get().count,
+        0,
+      );
+    } else {
+      await result;
+      assert.equal(
+        fixture.db
+          .prepare("SELECT title FROM sessions WHERE id = 'note-1'")
+          .get().title,
+        scenario === "renamed" ? "My title" : "Mobile launch planning",
+      );
+      assert.equal(
+        fixture.db
+          .prepare(
+            "SELECT body FROM session_documents WHERE id = 'summary:note-1'",
+          )
+          .get().body,
+        "## Decisions\nShip the mobile app.",
+      );
+    }
   }
 });
 

@@ -22,7 +22,12 @@ import { readChatgptSummary } from "./chatgpt-summary";
 import { docToPlainText, stripMarkdownTitle } from "./note-doc";
 import { summaryRequest } from "./provider-summary";
 import { PENDING_SUMMARY_PREFIX } from "./summary-job";
-import { buildSummaryPrompt, readSummaryText } from "./summary-model";
+import {
+  buildSummaryPrompt,
+  buildTitlePrompt,
+  readGeneratedTitle,
+  readSummaryText,
+} from "./summary-model";
 import {
   SESSION_TRANSCRIPTS_SQL,
   SESSION_SPEAKERS_SQL,
@@ -54,6 +59,11 @@ async function runSummary(
   sessionId: string,
   automatic: boolean,
 ): Promise<void> {
+  const [session] = await execute<{ title: string }>(
+    "SELECT title FROM sessions WHERE id = ? AND deleted_at IS NULL",
+    [sessionId],
+  );
+  if (!session) throw new Error("This note no longer exists.");
   const existing = await execute<{
     id: string;
     updated_at: string;
@@ -129,38 +139,37 @@ async function runSummary(
     throw new Error(
       "This meeting is too long to summarize on mobile. Open it on desktop.",
     );
-  const request = summaryRequest(
-    provider,
-    buildSummaryPrompt(preferences),
-    source,
-    env.apiUrl,
-  );
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 120_000);
-  let summary: string;
-  try {
-    const response = await fetch(request.url, {
-      method: "POST",
-      signal: controller.signal,
-      redirect: "error",
-      headers: request.headers,
-      body: JSON.stringify(request.body),
-    });
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw new Error(
-        isSubscriptionProvider(provider.provider) &&
-          (response.status === 401 || response.status === 403)
-          ? "Reconnect your subscription in Settings."
-          : isSubscriptionProvider(provider.provider) && response.status === 429
-            ? "Your subscription usage limit was reached. Try again later or choose another provider."
-            : response.status === 401 || response.status === 403
-              ? "Check your provider API key or sign in again."
-              : `The summary provider could not complete the request (${response.status}).`,
-      );
-    }
-    summary =
-      provider.provider === "chatgpt"
+  async function generate(
+    system: string,
+    source: string,
+    task: "enhance" | "title",
+  ) {
+    const request = summaryRequest(provider, system, source, env.apiUrl, task);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120_000);
+    try {
+      const response = await fetch(request.url, {
+        method: "POST",
+        signal: controller.signal,
+        redirect: "error",
+        headers: request.headers,
+        body: JSON.stringify(request.body),
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new Error(
+          isSubscriptionProvider(provider.provider) &&
+            (response.status === 401 || response.status === 403)
+            ? "Reconnect your subscription in Settings."
+            : isSubscriptionProvider(provider.provider) &&
+                response.status === 429
+              ? "Your subscription usage limit was reached. Try again later or choose another provider."
+              : response.status === 401 || response.status === 403
+                ? "Check your provider API key or sign in again."
+                : `The summary provider could not complete the request (${response.status}).`,
+        );
+      }
+      return provider.provider === "chatgpt"
         ? await readChatgptSummary(response)
         : readSummaryText(
             provider.provider,
@@ -168,9 +177,20 @@ async function runSummary(
               await readBoundedTranscriptionResponse(response, 1024 * 1024),
             ),
           );
-  } finally {
-    clearTimeout(timeout);
+    } finally {
+      clearTimeout(timeout);
+    }
   }
+  const summary = await generate(
+    buildSummaryPrompt(preferences),
+    source,
+    "enhance",
+  );
+  const title = session.title.trim()
+    ? null
+    : readGeneratedTitle(
+        await generate(buildTitlePrompt(preferences), summary, "title"),
+      );
   const now = nowIso();
   const metadata = JSON.stringify({
     provider: provider.provider,
@@ -180,6 +200,7 @@ async function runSummary(
   const [changed] = await executeTransaction([
     target
       ? {
+          expectedRowsAffected: 1,
           sql: `UPDATE session_documents SET body = ?, body_format = 'markdown', generation_metadata_json = ?, updated_at = ?, deleted_at = NULL
       WHERE id = ? AND session_id = ? AND updated_at = ? AND body = ? AND deleted_at IS ?
         AND EXISTS (SELECT 1 FROM sessions WHERE id = ? AND deleted_at IS NULL)`,
@@ -196,6 +217,7 @@ async function runSummary(
           ],
         }
       : {
+          expectedRowsAffected: 1,
           sql: `INSERT INTO session_documents (id, workspace_id, session_id, kind, title, body_format, body, generation_metadata_json, created_at, updated_at)
       SELECT ?, workspace_id, id, 'summary', 'Summary', 'markdown', ?, ?, ?, ? FROM sessions WHERE id = ? AND deleted_at IS NULL
         AND NOT EXISTS (SELECT 1 FROM session_documents WHERE session_id = ? AND kind IN ('summary', 'template_output') AND deleted_at IS NULL)
@@ -210,6 +232,14 @@ async function runSummary(
             sessionId,
           ],
         },
+    ...(title
+      ? [
+          {
+            sql: "UPDATE sessions SET title = ?, updated_at = ? WHERE id = ? AND title = ? AND deleted_at IS NULL",
+            params: [title, now, sessionId, session.title],
+          },
+        ]
+      : []),
   ]);
   if (changed !== 1)
     throw new Error(

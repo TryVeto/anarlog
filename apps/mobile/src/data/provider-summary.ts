@@ -12,6 +12,7 @@ export function summaryRequest(
   system: string,
   source: string,
   apiUrl: string,
+  task: "enhance" | "title" = "enhance",
 ) {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -85,7 +86,7 @@ export function summaryRequest(
     Object.assign(headers, COPILOT_HEADERS);
   if (provider.provider === "anarlog") {
     baseUrl = `${apiUrl}/llm`;
-    headers["x-char-task"] = "enhance";
+    headers["x-char-task"] = task;
   }
   return {
     url: `${baseUrl}/chat/completions`,
