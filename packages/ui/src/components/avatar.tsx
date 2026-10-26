@@ -1,7 +1,7 @@
-import { useState, type CSSProperties } from "react";
+import { generatePath } from "@lisse/core";
+import { useMemo, useState, type CSSProperties } from "react";
 
 import { useMountEffect } from "@anlg/ui/hooks/use-mount-effect";
-import { useSquircleRef } from "@anlg/ui/hooks/use-squircle";
 import {
   AVATAR_RASTER_SIZE,
   avatarFallbackGradient,
@@ -11,6 +11,7 @@ import {
   type AvatarRecipe,
   type AvatarRenderStyle,
 } from "@anlg/ui/lib/avatar";
+import { controlSquircle } from "@anlg/ui/lib/squircle";
 
 export type { AvatarRenderStyle } from "@anlg/ui/lib/avatar";
 
@@ -75,19 +76,19 @@ function AvatarImage({
     imageCache.get(cacheKey),
   );
   const [imageFailed, setImageFailed] = useState(false);
-  const squircleRef = useSquircleRef<HTMLSpanElement>();
   const dimension = Math.max(1, size);
+  // Fixed-size avatars need no DOM measurements or per-avatar SVG effects.
+  const outline = useMemo(
+    () => generatePath(dimension, dimension, controlSquircle),
+    [dimension],
+  );
   const containerStyle = {
     width: dimension,
     height: dimension,
     display: "inline-flex",
     position: "relative",
     flexShrink: 0,
-    overflow: "hidden",
-    boxSizing: "border-box",
-    border: "1px solid rgb(0 0 0 / 0.1)",
-    background: avatarFallbackGradient(recipe.seed),
-    boxShadow: "0 1px 2px rgb(0 0 0 / 0.08)",
+    filter: "drop-shadow(0 1px 2px rgb(0 0 0 / 0.08))",
   } satisfies CSSProperties;
   const initialsStyle = {
     position: "absolute",
@@ -122,32 +123,49 @@ function AvatarImage({
   });
 
   return (
-    <span
-      ref={squircleRef}
-      aria-hidden="true"
-      className={className}
-      style={containerStyle}
-    >
-      {displayedImageUrl ? (
-        <img
-          alt=""
-          draggable={false}
-          src={displayedImageUrl}
-          onError={providerImageUrl ? () => setImageFailed(true) : undefined}
-          style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-          }}
-        />
-      ) : null}
-      {!providerImageUrl && (
-        <span aria-hidden="true" style={initialsStyle}>
-          {avatarInitials(label)}
-        </span>
-      )}
+    <span aria-hidden="true" className={className} style={containerStyle}>
+      <span
+        style={{
+          position: "absolute",
+          inset: 0,
+          clipPath: `path('${outline}')`,
+          background: avatarFallbackGradient(recipe.seed),
+        }}
+      >
+        {displayedImageUrl ? (
+          <img
+            alt=""
+            draggable={false}
+            src={displayedImageUrl}
+            onError={providerImageUrl ? () => setImageFailed(true) : undefined}
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+            }}
+          />
+        ) : null}
+        {!providerImageUrl && (
+          <span aria-hidden="true" style={initialsStyle}>
+            {avatarInitials(label)}
+          </span>
+        )}
+        <svg
+          width={dimension}
+          height={dimension}
+          aria-hidden="true"
+          style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
+        >
+          <path
+            d={outline}
+            fill="none"
+            stroke="rgb(0 0 0 / 0.1)"
+            strokeWidth={2}
+          />
+        </svg>
+      </span>
     </span>
   );
 }
