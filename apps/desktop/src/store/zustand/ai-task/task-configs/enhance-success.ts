@@ -4,10 +4,7 @@ import { commands as localApiCommands } from "@anlg/plugin-local-api";
 import { commands as templateCommands } from "@anlg/plugin-template";
 
 import { createTaskId, type TaskConfig } from ".";
-import {
-  getPersistableGeneratedTitle,
-  persistGeneratedTitle,
-} from "./title-success";
+import { getPersistableGeneratedTitle } from "./title-success";
 
 import { runNoteEnhancedAutomations } from "~/automations/engine";
 import { syncCloudApiSnapshotBestEffort } from "~/cloud-api/client";
@@ -153,18 +150,19 @@ export const runEnhanceSuccess = async ({
           nextContent: JSON.stringify(md2json(persistableText)),
         },
         tagNames,
+        ...(shouldPersistGeneratedTitle
+          ? {
+              title: {
+                currentTitle: snapshot.title,
+                nextTitle: generatedTitle,
+              },
+            }
+          : {}),
         ...(args.pendingAutoEnhance
           ? { pendingAutoEnhance: args.pendingAutoEnhance }
           : {}),
       }).then(onPersisted);
     });
-
-    if (shouldPersistGeneratedTitle && !signal.aborted) {
-      await persistGeneratedTitle({
-        text: generatedTitle,
-        args: { sessionId: args.sessionId },
-      });
-    }
 
     if (!signal.aborted) {
       void localApiCommands.dispatchEvent("note.enhanced", args.sessionId);

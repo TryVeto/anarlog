@@ -72,12 +72,14 @@ export function persistGeneratedEnhancedNote({
   ownerUserId,
   note,
   tagNames,
+  title,
   pendingAutoEnhance,
 }: {
   sessionId: string;
   ownerUserId: string;
   note: SessionDocumentContentUpdate;
   tagNames: string[];
+  title?: SessionTitleCorrection;
   pendingAutoEnhance?: {
     generation: string;
     expectedBody: string;
@@ -93,6 +95,9 @@ export function persistGeneratedEnhancedNote({
       current_body_format: note.currentContentFormat,
       next_body: note.nextContent,
       tag_names: tagNames,
+      title: title
+        ? { current_title: title.currentTitle, next_title: title.nextTitle }
+        : null,
       pending_auto_enhance: pendingAutoEnhance
         ? {
             generation: pendingAutoEnhance.generation,

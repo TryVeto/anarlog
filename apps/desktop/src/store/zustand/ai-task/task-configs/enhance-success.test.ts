@@ -12,7 +12,6 @@ const mocks = vi.hoisted(() => ({
   loadSessionContentSnapshot: vi.fn(),
   playCompletionSound: vi.fn(),
   persistGeneratedEnhancedNote: vi.fn().mockResolvedValue(undefined),
-  persistGeneratedTitle: vi.fn().mockResolvedValue(true),
   prepareGeneratedSummary: vi.fn(),
   composeGeneratedSummary: vi.fn(),
 }));
@@ -48,11 +47,6 @@ vi.mock("~/cloud-api/client", () => ({
 
 vi.mock("~/session/content-mutations", () => ({
   persistGeneratedEnhancedNote: mocks.persistGeneratedEnhancedNote,
-}));
-
-vi.mock("./title-success", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./title-success")>()),
-  persistGeneratedTitle: mocks.persistGeneratedTitle,
 }));
 
 type EnhanceSuccessParams = Parameters<
@@ -137,7 +131,6 @@ describe("enhanceSuccess.onSuccess", () => {
     useLiveTitle.setState({ titles: {} });
     mocks.loadSessionContentSnapshot.mockResolvedValue(createSnapshot());
     mocks.persistGeneratedEnhancedNote.mockResolvedValue(undefined);
-    mocks.persistGeneratedTitle.mockResolvedValue(true);
     mocks.prepareGeneratedSummary
       .mockReset()
       .mockImplementation(async ({ text }) => ({
@@ -295,7 +288,7 @@ describe("enhanceSuccess.onSuccess", () => {
     );
   });
 
-  it("waits for a generated title, saves the note, then persists the title", async () => {
+  it("saves the generated title and summary in the same request", async () => {
     const startTask = vi.fn().mockImplementation(async (_taskId, config) => {
       config.onComplete?.("Generated title");
     });
@@ -309,11 +302,8 @@ describe("enhanceSuccess.onSuccess", () => {
         args: expect.objectContaining({ skipPersist: true }),
       }),
     );
-    expect(mocks.persistGeneratedEnhancedNote).toHaveBeenCalledBefore(
-      mocks.persistGeneratedTitle,
-    );
     expect(startTask).toHaveBeenCalledBefore(mocks.beginCloudsyncActivity);
-    expect(mocks.persistGeneratedTitle).toHaveBeenCalledBefore(
+    expect(mocks.persistGeneratedEnhancedNote).toHaveBeenCalledBefore(
       mocks.endCloudsyncActivity,
     );
     expect(startTask).toHaveBeenCalledWith(
@@ -327,10 +317,11 @@ describe("enhanceSuccess.onSuccess", () => {
     expect(mocks.composeGeneratedSummary).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Generated title" }),
     );
-    expect(mocks.persistGeneratedTitle).toHaveBeenCalledWith({
-      text: "Generated title",
-      args: { sessionId: "session-1" },
-    });
+    expect(mocks.persistGeneratedEnhancedNote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: { currentTitle: "", nextTitle: "Generated title" },
+      }),
+    );
   });
 
   it("regenerates the title instead of reusing an earlier finished title", async () => {
@@ -354,10 +345,11 @@ describe("enhanceSuccess.onSuccess", () => {
       "session-1-title",
       expect.objectContaining({ taskType: "title" }),
     );
-    expect(mocks.persistGeneratedTitle).toHaveBeenCalledWith({
-      text: "New title",
-      args: { sessionId: "session-1" },
-    });
+    expect(mocks.persistGeneratedEnhancedNote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: { currentTitle: "", nextTitle: "New title" },
+      }),
+    );
   });
 
   it("uses an existing title without starting title generation", async () => {
@@ -369,7 +361,9 @@ describe("enhanceSuccess.onSuccess", () => {
     await enhanceSuccess.onSuccess?.(params);
 
     expect(params.startTask).not.toHaveBeenCalled();
-    expect(mocks.persistGeneratedTitle).not.toHaveBeenCalled();
+    expect(
+      mocks.persistGeneratedEnhancedNote.mock.calls[0]?.[0].title,
+    ).toBeUndefined();
     expect(mocks.composeGeneratedSummary).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Existing title" }),
     );
@@ -392,7 +386,6 @@ describe("enhanceSuccess.onSuccess", () => {
         }),
       ),
     ).rejects.toThrow("stale summary");
-    expect(mocks.persistGeneratedTitle).not.toHaveBeenCalled();
     expect(mocks.endCloudsyncActivity).toHaveBeenCalledWith(
       "enhance",
       mocks.beginCloudsyncActivity.mock.calls[0]?.[1],
@@ -444,7 +437,6 @@ describe("enhanceSuccess.onSuccess", () => {
     ).rejects.toBe(acquisitionError);
 
     expect(mocks.persistGeneratedEnhancedNote).not.toHaveBeenCalled();
-    expect(mocks.persistGeneratedTitle).not.toHaveBeenCalled();
     expect(mocks.loadSessionContentSnapshot).toHaveBeenCalledOnce();
     expect(mocks.endCloudsyncActivity).not.toHaveBeenCalled();
   });
@@ -542,6 +534,8 @@ describe("enhanceSuccess.onSuccess", () => {
     await enhanceSuccess.onSuccess?.(params);
 
     expect(params.startTask).not.toHaveBeenCalled();
-    expect(mocks.persistGeneratedTitle).not.toHaveBeenCalled();
+    expect(
+      mocks.persistGeneratedEnhancedNote.mock.calls[0]?.[0].title,
+    ).toBeUndefined();
   });
 });

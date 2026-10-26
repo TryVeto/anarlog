@@ -1,9 +1,10 @@
 use std::collections::HashSet;
 
+use crate::session_content::TitleCorrection;
 use crate::transaction_utils::{js_iso8601_timestamp, rollback_row_count_mismatch};
 use anlg_db_app::{
     GeneratedSummaryBodyUpdate, PendingAutoEnhanceMatch, delete_pending_auto_enhance,
-    update_generated_summary_body, upsert_session_tag, upsert_tag,
+    update_generated_summary_body, update_session_title, upsert_session_tag, upsert_tag,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -28,6 +29,7 @@ pub struct SaveGeneratedSummaryRequest {
     pub current_body_format: String,
     pub next_body: String,
     pub tag_names: Vec<String>,
+    pub title: Option<TitleCorrection>,
     pub pending_auto_enhance: Option<PendingAutoEnhanceGuard>,
 }
 
@@ -43,6 +45,7 @@ pub async fn save_generated_summary(
         current_body_format,
         next_body,
         tag_names,
+        title,
         pending_auto_enhance,
     } = request;
 
@@ -104,7 +107,22 @@ pub async fn save_generated_summary(
         return Err(rollback_row_count_mismatch(transaction, 1, deleted, 1).await);
     }
 
-    let mut statement_index = 2;
+    if let Some(title) = title {
+        let updated = update_session_title(
+            &mut transaction,
+            &session_id,
+            &title.current_title,
+            &title.next_title,
+            &timestamp,
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+        if updated != 1 {
+            return Err(rollback_row_count_mismatch(transaction, 2, updated, 1).await);
+        }
+    }
+
+    let mut statement_index = 3;
     for tag_name in tag_names {
         let tag_rows = upsert_tag(&mut transaction, user_id, &tag_name, &timestamp)
             .await
@@ -184,6 +202,7 @@ mod tests {
             next_body: r#"{"type":"doc","content":[]}"#.to_string(),
             tag_names: tag_names.into_iter().map(str::to_string).collect(),
             pending_auto_enhance: None,
+            title: None,
         }
     }
 
@@ -194,6 +213,41 @@ mod tests {
             .execute(db.pool())
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn generated_title_and_summary_commit_together_or_preserve_a_concurrent_rename() {
+        for existing_title in ["", "Manual title"] {
+            let db = test_db().await;
+            sqlx::query("UPDATE sessions SET title = ? WHERE id = 'session-1'")
+                .bind(existing_title)
+                .execute(db.pool())
+                .await
+                .unwrap();
+            let mut request = request(vec!["launch"]);
+            request.title = Some(TitleCorrection {
+                current_title: String::new(),
+                next_title: "DEFCON 1".to_string(),
+            });
+            let next_body = request.next_body.clone();
+            let result = save_generated_summary(db.pool(), request).await;
+            let (title, body): (String, String) = sqlx::query_as(
+                "SELECT s.title, d.body FROM sessions s
+                 JOIN session_documents d ON d.session_id = s.id WHERE d.id = 'note-1'",
+            )
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+            if existing_title.is_empty() {
+                result.unwrap();
+                assert_eq!(title, "DEFCON 1");
+                assert_eq!(body, next_body);
+            } else {
+                assert!(result.is_err());
+                assert_eq!(title, existing_title);
+                assert_eq!(body, "old body");
+            }
+        }
     }
 
     #[tokio::test]
