@@ -23,6 +23,7 @@ import {
   type LiveTranscriptWord,
 } from "./live-transcription-model";
 import { pendingSummaryStatement } from "./summary-job";
+import { sharedMicrophoneContextStatement } from "./transcript-model";
 
 export type LiveTranscriptionStatus = "connecting" | "live" | "fallback";
 
@@ -581,6 +582,12 @@ export class SessionLiveTranscription {
           sql: LIVE_STATE_DELETE_SQL,
           params: [this.transcriptId],
         },
+        sharedMicrophoneContextStatement(
+          this.sessionId,
+          this.startedAtMs,
+          words.reduce((end, word) => Math.max(end, word.end_ms), 0),
+          nowIso(),
+        ),
       ]).catch((error) => {
         this.fail(error, "finish");
         return [];

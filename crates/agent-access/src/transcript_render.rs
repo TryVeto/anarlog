@@ -414,7 +414,7 @@ mod tests {
             is_self: true,
         }];
         let mut export = export(vec![transcript(words, Vec::new())], speakers);
-        assert_eq!(render_transcripts_markdown(&export), "Me: Hello Bob");
+        assert_eq!(render_transcripts_markdown(&export), "Speaker 1: Hello Bob");
 
         export.speaker_context = Some(json!({
             "intervals": [{
@@ -429,7 +429,11 @@ mod tests {
                 "participants": []
             }]
         }));
-        assert_ne!(render_transcripts_markdown(&export), "Me: Hello Bob");
+        assert_eq!(render_transcripts_markdown(&export), "Speaker 1: Hello Bob");
+        let interval = &mut export.speaker_context.as_mut().unwrap()["intervals"][0];
+        interval["shared_microphone"] = json!(false);
+        interval["mic_isolated"] = json!(true);
+        assert_eq!(render_transcripts_markdown(&export), "Me: Hello Bob");
     }
 
     #[test]
@@ -482,7 +486,7 @@ mod tests {
 
         assert_eq!(
             render_transcripts_markdown(&export),
-            "Me: Hello there\n\nAlice: Hi Alice\n\nSpeaker 1: Anyone else?"
+            "Speaker 1: Hello there\n\nAlice: Hi Alice\n\nSpeaker 2: Anyone else?"
         );
     }
 }

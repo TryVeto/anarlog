@@ -1177,7 +1177,7 @@ mod tests {
         );
         let markdown = export.to_markdown();
         assert!(
-            markdown.ends_with("## Transcript\n\nMe: Hello there\n\nAlice: Hi"),
+            markdown.ends_with("## Transcript\n\nSpeaker 1: Hello there\n\nAlice: Hi"),
             "{markdown}"
         );
     }

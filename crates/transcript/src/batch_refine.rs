@@ -1826,9 +1826,9 @@ mod tests {
     }
 
     #[test]
-    fn whole_session_retranscription_restores_owner_without_splitting_fresh_clusters() {
+    fn whole_session_retranscription_restores_channels_without_inventing_owner_identity() {
         for (second_channel, second_start, restored_channel, label) in [
-            (0.0, 100.0, 0.0, "John"),
+            (0.0, 100.0, 0.0, "Speaker 1"),
             (1.0, 100.0, 2.0, "Speaker 1"),
             (2.0, 100.0, 2.0, "Speaker 1"),
             (0.0, 300.0, 2.0, "Speaker 1"),

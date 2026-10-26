@@ -26,10 +26,10 @@ import { buildSummaryPrompt, readSummaryText } from "./summary-model";
 import {
   SESSION_TRANSCRIPTS_SQL,
   SESSION_SPEAKERS_SQL,
-  transcriptSegments,
   type TranscriptRow,
 } from "./transcript-model";
 import { readBoundedTranscriptionResponse } from "./transcription-response";
+import { renderTranscript } from "./transcripts";
 
 export class SummarySkippedError extends Error {
   readonly reason: string;
@@ -101,8 +101,7 @@ async function runSummary(
         : docToPlainText(note.body)
       ).text
     : "";
-  const names = new Map(humans.map((human) => [human.id, human.name]));
-  const segments = transcripts.flatMap((row) => transcriptSegments(row, names));
+  const segments = transcripts.flatMap((row) => renderTranscript(row, humans));
   const transcript = segments
     .map((segment) => `${segment.speaker}: ${segment.text}`)
     .join("\n");

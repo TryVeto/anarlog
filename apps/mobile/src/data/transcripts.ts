@@ -1,14 +1,16 @@
 import { useMemo } from "react";
 
+import { renderStoredTranscript } from "@anlg/mobile-bridge";
+
 import { execute, useLiveQuery } from "@/db";
 import { captureOperationalError } from "@/lib/error-reporting";
 
 import {
-  transcriptSegments,
   SESSION_TRANSCRIPTS_SQL,
   SESSION_SPEAKERS_SQL,
   SESSION_HAS_TRANSCRIPT_SQL,
   type TranscriptRow,
+  type TranscriptSegment,
 } from "./transcript-model";
 export type { TranscriptSegment } from "./transcript-model";
 
@@ -26,14 +28,27 @@ function rememberInvalidRow(rowId: string) {
   }
 }
 
+export function renderTranscript(
+  row: TranscriptRow,
+  humans: { id: string; name: string }[],
+): TranscriptSegment[] {
+  return JSON.parse(
+    renderStoredTranscript(
+      JSON.stringify({
+        ...row,
+        humans: humans.map(({ id, name }) => ({ human_id: id, name })),
+      }),
+    ),
+  );
+}
+
 function mapTranscripts(
   rows: TranscriptRow[],
   humans: { id: string; name: string }[],
 ) {
-  const names = new Map(humans.map((human) => [human.id, human.name]));
   return rows.flatMap((row) => {
     try {
-      return transcriptSegments(row, names);
+      return renderTranscript(row, humans);
     } catch (error) {
       if (!reportedInvalidRows.has(row.id)) {
         rememberInvalidRow(row.id);

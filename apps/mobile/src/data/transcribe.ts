@@ -24,6 +24,7 @@ import { batchTranscriptionModel } from "@/settings/transcription-mode";
 import { requestProviderTranscription } from "./provider-transcription";
 import { generateSummaryAfterTranscription } from "./summarize";
 import { pendingSummaryStatement } from "./summary-job";
+import { sharedMicrophoneContextStatement } from "./transcript-model";
 import { TranscriptionAdmission } from "./transcription-admission";
 import {
   assertBoundedTranscriptionResponse,
@@ -497,6 +498,7 @@ async function runTranscription(sessionId: string): Promise<void> {
   }
   const now = nowIso();
   const attachmentId = `session-audio:${sessionId}`;
+  const durationMs = words.reduce((end, word) => Math.max(end, word.end_ms), 0);
   const wordsJson = JSON.stringify(words);
   words.length = 0;
   const hintsJson = JSON.stringify(hints);
@@ -525,6 +527,7 @@ async function runTranscription(sessionId: string): Promise<void> {
       sql: MARK_COMPLETE_SQL,
       params: [now, attachmentId, sessionId] as unknown[],
     },
+    sharedMicrophoneContextStatement(sessionId, startedAtMs, durationMs, now),
     pendingSummaryStatement(sessionId),
   ]).catch((error) => {
     throw withTranscriptionStage(error, "persist");

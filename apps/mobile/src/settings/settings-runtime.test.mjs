@@ -47,6 +47,15 @@ const modules = {
       return fixture.verify(credential);
     }`,
   "@anlg/mobile-bridge": `export const ProviderTranscriptionError = Object.fromEntries(["AudioTooLarge", "AudioMissing", "ResponseTooLarge", "InvalidSettings", "TimedOut", "RequestFailed"].map(tag => [tag, {instanceOf: error => error.tag === tag}]));
+  export function renderStoredTranscript(json) {
+    const request = JSON.parse(json);
+    const fixture = globalThis.mobileSettingsFixture;
+    fixture.renderRequest = request;
+    if (fixture.renderedSegments) return JSON.stringify(fixture.renderedSegments);
+    const words = JSON.parse(request.words_json);
+    return JSON.stringify(words.map(word => ({id: word.id, speaker: 'Speaker 1', text: word.text,
+      wordCount: 1, startMs: request.started_at_ms + word.start_ms})));
+  }
   export async function transcribeProviderAudio(request, options) {
     const fixture = globalThis.mobileSettingsFixture;
     fixture.nativeRequest = {request: JSON.parse(request), signal: options.signal};
@@ -159,6 +168,8 @@ beforeEach(() => {
   Platform.OS = "ios";
   fixture.nativeRequest = null;
   fixture.nativeError = null;
+  fixture.renderedSegments = null;
+  fixture.renderRequest = null;
   fixture.db?.close();
   fixture.db = new DatabaseSync(":memory:");
   for (const migration of [
@@ -2337,7 +2348,27 @@ test("summaries read the full visible transcript, including uncompact live revis
       new_words: [word("second", "Wrong ending", 100)],
     }),
   );
+  fixture.renderedSegments = [
+    {
+      id: "resolved",
+      speaker: "John",
+      wordCount: 5,
+      startMs: 0,
+      text: "First snapshot covers the launch plan the pricing review and onboarding checklist the support rotation for next week and every open question before Friday Corrected ending",
+    },
+  ];
   const exported = await loadSessionTranscripts("note-1");
+  assert.deepEqual(
+    JSON.parse(fixture.renderRequest.pending_deltas_json).map(
+      (delta) => delta.new_words[0].text,
+    ),
+    ["Wrong ending", "Corrected ending"],
+  );
+  assert.ok(
+    fixture.renderRequest.humans.some(
+      (human) => human.human_id === "speaker-a" && human.name === "John",
+    ),
+  );
   assert.deepEqual(
     exported.map(({ speaker, text }) => ({ speaker, text })),
     [

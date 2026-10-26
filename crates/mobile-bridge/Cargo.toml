@@ -16,6 +16,7 @@ anlg-db-migrate = { workspace = true }
 anlg-db-reactive = { workspace = true }
 anlg-db-sync = { workspace = true }
 anlg-e2ee = { workspace = true }
+anlg-transcript = { workspace = true }
 owhisper-client = { workspace = true }
 owhisper-interface = { workspace = true }
 

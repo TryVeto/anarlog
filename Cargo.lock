@@ -10069,6 +10069,7 @@ dependencies = [
  "tokio-stream",
  "tokio-tungstenite 0.29.0",
  "tokio-util",
+ "transcript",
  "uniffi 0.31.1",
  "url",
  "uuid",

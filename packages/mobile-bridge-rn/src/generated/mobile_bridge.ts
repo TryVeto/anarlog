@@ -55,6 +55,32 @@ const uniffiIsDebug =
 
 // Public interface members begin here.
 
+export function renderStoredTranscript(requestJson: string): string /*throws*/ {
+  return ((__rb: Uint8Array) => {
+    try {
+      return FfiConverterString.lift(__rb);
+    } finally {
+      nativeModule().rustbuffer_free(__rb);
+    }
+  })(
+    uniffiCaller.rustCallWithError(
+      /*liftError:*/ FfiConverterTypeBridgeError.lift.bind(
+        FfiConverterTypeBridgeError,
+      ),
+      /*caller:*/ (callStatus) => {
+        return nativeModule().ubrn_uniffi_mobile_bridge_fn_func_render_stored_transcript(
+          FfiConverterString.lower(
+            requestJson,
+            nativeModule().rustbuffer_alloc,
+          ),
+          callStatus,
+        );
+      },
+      /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+    ),
+  );
+}
+
 export async function startProviderLiveTranscription(
   requestJson: string,
   listener: TranscriptionEventListener,
@@ -2853,6 +2879,14 @@ function uniffiEnsureInitialized() {
     throw new UniffiInternalError.ContractVersionMismatch(
       scaffoldingContractVersion,
       bindingsContractVersion,
+    );
+  }
+  if (
+    nativeModule().ubrn_uniffi_mobile_bridge_checksum_func_render_stored_transcript() !==
+    41007
+  ) {
+    throw new UniffiInternalError.ApiChecksumMismatch(
+      "uniffi_mobile_bridge_checksum_func_render_stored_transcript",
     );
   }
   if (

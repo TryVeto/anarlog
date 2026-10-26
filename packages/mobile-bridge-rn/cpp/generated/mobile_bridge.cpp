@@ -411,6 +411,10 @@ extern "C" {
         RustBuffer request_json, 
         /*handle*/ uint64_t listener
     );
+    RustBuffer uniffi_mobile_bridge_fn_func_render_stored_transcript(
+        RustBuffer request_json, 
+        RustCallStatus *uniffi_out_err
+    );
     /*handle*/ uint64_t uniffi_mobile_bridge_fn_func_transcribe_provider_audio(
         RustBuffer request_json
     );
@@ -612,6 +616,8 @@ extern "C" {
         RustCallStatus *uniffi_out_err
     );
     uint16_t uniffi_mobile_bridge_checksum_func_start_provider_live_transcription(
+    );
+    uint16_t uniffi_mobile_bridge_checksum_func_render_stored_transcript(
     );
     uint16_t uniffi_mobile_bridge_checksum_func_transcribe_provider_audio(
     );
@@ -3632,6 +3638,14 @@ NativeMobileBridge::NativeMobileBridge(
             return this->cpp_uniffi_mobile_bridge_fn_func_start_provider_live_transcription(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_mobile_bridge_fn_func_render_stored_transcript"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_mobile_bridge_fn_func_render_stored_transcript"),
+        1,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_mobile_bridge_fn_func_render_stored_transcript(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_mobile_bridge_fn_func_transcribe_provider_audio"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_mobile_bridge_fn_func_transcribe_provider_audio"),
@@ -4030,6 +4044,14 @@ NativeMobileBridge::NativeMobileBridge(
         0,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_uniffi_mobile_bridge_checksum_func_start_provider_live_transcription(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_mobile_bridge_checksum_func_render_stored_transcript"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_mobile_bridge_checksum_func_render_stored_transcript"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_mobile_bridge_checksum_func_render_stored_transcript(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_mobile_bridge_checksum_func_transcribe_provider_audio"] = jsi::Function::createFromHostFunction(
@@ -5067,6 +5089,16 @@ jsi::Value NativeMobileBridge::cpp_uniffi_mobile_bridge_fn_func_start_provider_l
         
         return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
 }
+jsi::Value NativeMobileBridge::cpp_uniffi_mobile_bridge_fn_func_render_stored_transcript(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        RustCallStatus status = uniffi::mobile_bridge::Bridging<RustCallStatus>::rustSuccess(rt);
+        auto value = uniffi_mobile_bridge_fn_func_render_stored_transcript(uniffi::mobile_bridge::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[0]), 
+            &status
+        );
+        uniffi::mobile_bridge::Bridging<RustCallStatus>::copyIntoJs(rt, callInvoker, status, args[count - 1]);
+
+        
+        return uniffi::mobile_bridge::Bridging<RustBuffer>::toJs(rt, callInvoker, value);
+}
 jsi::Value NativeMobileBridge::cpp_uniffi_mobile_bridge_fn_func_transcribe_provider_audio(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_mobile_bridge_fn_func_transcribe_provider_audio(uniffi::mobile_bridge::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[0])
         );
@@ -5448,6 +5480,13 @@ jsi::Value NativeMobileBridge::cpp_ffi_mobile_bridge_rust_future_complete_void(j
 }
 jsi::Value NativeMobileBridge::cpp_uniffi_mobile_bridge_checksum_func_start_provider_live_transcription(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_mobile_bridge_checksum_func_start_provider_live_transcription(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeMobileBridge::cpp_uniffi_mobile_bridge_checksum_func_render_stored_transcript(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_mobile_bridge_checksum_func_render_stored_transcript(
         );
 
         
