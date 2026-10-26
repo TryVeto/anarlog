@@ -239,3 +239,26 @@ test("fallback note conflicts retain their identity through history and restore"
     1,
   );
 });
+
+test("deleted note history restores into the currently visible document", async () => {
+  db.exec(
+    "INSERT INTO sessions (id, title) VALUES ('deleted-source', 'Planning'); INSERT INTO session_documents (id, session_id, kind, body_format, body) VALUES ('old-source', 'deleted-source', 'note', 'markdown', '# Planning\n\nOriginal')",
+  );
+  db.exec(
+    "UPDATE session_documents SET body = '# Planning\n\nChanged' WHERE id = 'old-source'; UPDATE session_documents SET deleted_at = '2026-10-26' WHERE id = 'old-source'; INSERT INTO session_documents (id, session_id, kind, body_format, body) VALUES ('deleted-source', 'deleted-source', 'note', 'markdown', '# Planning\n\nCurrent')",
+  );
+  const entry = useSessionVersionHistory("deleted-source").data.find((entry) =>
+    entry.body.includes("Original"),
+  );
+  assert.ok(entry);
+  await restoreHistoryEntry("deleted-source", entry);
+  assert.equal(useSessionDetail("deleted-source").data.noteText, "Original");
+  assert.equal(
+    db
+      .prepare(
+        "SELECT deleted_at FROM session_documents WHERE id = 'old-source'",
+      )
+      .get().deleted_at,
+    "2026-10-26",
+  );
+});

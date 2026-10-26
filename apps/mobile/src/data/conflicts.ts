@@ -151,19 +151,19 @@ async function restoreNoteBody(
   sessionId: string,
   body: string,
   bodyFormat: "prosemirror_json" | "markdown",
-  documentId?: string,
 ): Promise<RestoredNote> {
   const document =
     bodyFormat === "markdown" ? stripMarkdownTitle(body) : docToPlainText(body);
   // A body without its own heading keeps the title the note has now.
   const title = document.title.trim() || (await currentTitle(sessionId));
-  const [base] = documentId
-    ? await execute<{ id: string; body: string; bodyFormat: string }>(
-        "SELECT id, body, body_format AS bodyFormat FROM session_documents WHERE id = ? AND session_id = ? AND kind = 'note' AND deleted_at IS NULL",
-        [documentId, sessionId],
-      )
-    : [];
-  if (documentId && !base) throw new Error("This note is no longer available.");
+  const [base] = await execute<{
+    id: string;
+    body: string;
+    bodyFormat: string;
+  }>(
+    "SELECT id, body, body_format AS bodyFormat FROM session_documents WHERE session_id = ? AND kind = 'note' AND deleted_at IS NULL ORDER BY (id = ?) DESC, created_at, id LIMIT 1",
+    [sessionId, sessionId],
+  );
   const saved = await saveSessionNote(sessionId, {
     title,
     bodyText: document.text,
@@ -185,7 +185,6 @@ export async function restoreConflict(
           conflict.sessionId,
           conflict.value,
           conflict.bodyFormat,
-          conflict.documentId,
         );
   await resolveConflict(conflict.id);
   return restored;
@@ -207,7 +206,6 @@ export async function restoreHistoryEntry(
     sessionId,
     entry.body,
     entry.bodyFormat,
-    entry.documentId,
   );
   if (entry.conflictId) await resolveConflict(entry.conflictId);
   return restored;
