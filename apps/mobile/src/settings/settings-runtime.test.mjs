@@ -2079,7 +2079,7 @@ test("mobile summaries persist generated titles without overwriting concurrent r
     const result = summarizeSession("note-1", {
       automatic: scenario !== "manual",
     });
-    if (["failed-title", "stale-summary", "failed-save"].includes(scenario)) {
+    if (["stale-summary", "failed-save"].includes(scenario)) {
       await assert.rejects(result);
       assert.equal(
         fixture.db
@@ -2101,7 +2101,11 @@ test("mobile summaries persist generated titles without overwriting concurrent r
         fixture.db
           .prepare("SELECT title FROM sessions WHERE id = 'note-1'")
           .get().title,
-        scenario === "renamed" ? "My title" : "Mobile launch planning",
+        scenario === "renamed"
+          ? "My title"
+          : scenario === "failed-title"
+            ? ""
+            : "Mobile launch planning",
       );
       assert.equal(
         fixture.db

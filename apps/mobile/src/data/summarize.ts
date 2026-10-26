@@ -186,11 +186,16 @@ async function runSummary(
     source,
     "enhance",
   );
-  const title = session.title.trim()
-    ? null
-    : readGeneratedTitle(
+  let title: string | null = null;
+  if (!session.title.trim()) {
+    try {
+      title = readGeneratedTitle(
         await generate(buildTitlePrompt(preferences), summary, "title"),
       );
+    } catch {
+      // A title is optional; preserve the completed summary if its request fails.
+    }
+  }
   const now = nowIso();
   const metadata = JSON.stringify({
     provider: provider.provider,
