@@ -330,7 +330,7 @@ export async function saveSessionNote(
     return body;
   }
 
-  await executeTransaction([
+  const results = await executeTransaction([
     {
       sql: SESSION_TITLE_UPDATE_SQL,
       params: [input.title, now, sessionId],
@@ -340,6 +340,11 @@ export async function saveSessionNote(
       params: [sessionId, input.bodyFormat, body, now, now, sessionId],
     },
   ]);
+  if (results[1] !== 1) {
+    throw new Error(
+      "The note is no longer available. Your edits could not be saved.",
+    );
+  }
   captureNoteEditOnce(sessionId, "body", input.bodyFormat);
   return body;
 }

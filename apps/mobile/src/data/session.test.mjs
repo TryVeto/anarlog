@@ -262,3 +262,45 @@ test("deleted note history restores into the currently visible document", async 
     "2026-10-26",
   );
 });
+
+test("restoring a deleted meeting rejects without resolving its conflict", async () => {
+  db.exec(
+    "INSERT INTO sessions (id, title) VALUES ('deleted-meeting', 'Planning'); INSERT INTO session_documents (id, session_id, kind, body_format, body) VALUES ('deleted-meeting', 'deleted-meeting', 'note', 'markdown', '# Planning\n\nOriginal')",
+  );
+  const base = useSessionDetail("deleted-meeting").data.document;
+  db.exec(
+    "UPDATE session_documents SET body = '# Planning\n\nRemote' WHERE id = 'deleted-meeting'",
+  );
+  await saveSessionNote("deleted-meeting", {
+    title: "Planning",
+    baseTitle: "Planning",
+    base,
+    bodyText: "Lost draft",
+    bodyFormat: "markdown",
+  });
+  const entry = useSessionVersionHistory("deleted-meeting").data.find(
+    (entry) => entry.conflictId,
+  );
+  assert.ok(entry);
+  db.exec(
+    "UPDATE sessions SET deleted_at = '2026-10-26' WHERE id = 'deleted-meeting'; UPDATE session_documents SET deleted_at = '2026-10-26' WHERE id = 'deleted-meeting'",
+  );
+  await assert.rejects(
+    restoreHistoryEntry("deleted-meeting", entry),
+    /no longer available/,
+  );
+  assert.equal(
+    db
+      .prepare("SELECT resolved_at FROM e2ee_field_conflicts WHERE id = ?")
+      .get(entry.conflictId).resolved_at,
+    null,
+  );
+  assert.equal(
+    db
+      .prepare(
+        "SELECT body FROM session_documents WHERE id = 'deleted-meeting'",
+      )
+      .get().body,
+    "# Planning\n\nRemote",
+  );
+});
