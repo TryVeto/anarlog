@@ -24,7 +24,6 @@ import { batchTranscriptionModel } from "@/settings/transcription-mode";
 import { requestProviderTranscription } from "./provider-transcription";
 import { generateSummaryAfterTranscription } from "./summarize";
 import { pendingSummaryStatement } from "./summary-job";
-import { sharedMicrophoneContextStatement } from "./transcript-model";
 import { TranscriptionAdmission } from "./transcription-admission";
 import {
   assertBoundedTranscriptionResponse,
@@ -90,6 +89,9 @@ const PENDING_AUDIO_SQL = `
 SELECT
   attachment.content_type,
   attachment.size_bytes,
+  COALESCE(json_extract(attachment.metadata_json, '$.capture_started_at_ms'),
+    (SELECT MIN(started_at_ms) FROM transcripts WHERE audio_attachment_id = attachment.id),
+    CAST((julianday(attachment.created_at) - 2440587.5) * 86400000 AS INTEGER)) AS capture_started_at_ms,
   local_state.relative_path AS local_relative_path
 FROM session_attachments AS attachment
 JOIN attachment_local_state AS local_state
@@ -419,6 +421,7 @@ async function runTranscription(sessionId: string): Promise<void> {
     content_type: string;
     size_bytes: number;
     local_relative_path: string;
+    capture_started_at_ms: number | null;
   }>(PENDING_AUDIO_SQL, [sessionId]);
   const audio = rows[0];
   if (!audio) return;
@@ -452,7 +455,7 @@ async function runTranscription(sessionId: string): Promise<void> {
   const provider = { ...selected, model };
   const preferences = await readPreferences();
   const token = provider.provider === "anarlog" ? provider.apiKey : undefined;
-  const startedAtMs = Date.now();
+  const startedAtMs = audio.capture_started_at_ms ?? Date.now();
 
   const response = await requestTranscription(
     file,
@@ -498,7 +501,6 @@ async function runTranscription(sessionId: string): Promise<void> {
   }
   const now = nowIso();
   const attachmentId = `session-audio:${sessionId}`;
-  const durationMs = words.reduce((end, word) => Math.max(end, word.end_ms), 0);
   const wordsJson = JSON.stringify(words);
   words.length = 0;
   const hintsJson = JSON.stringify(hints);
@@ -527,7 +529,6 @@ async function runTranscription(sessionId: string): Promise<void> {
       sql: MARK_COMPLETE_SQL,
       params: [now, attachmentId, sessionId] as unknown[],
     },
-    sharedMicrophoneContextStatement(sessionId, startedAtMs, durationMs, now),
     pendingSummaryStatement(sessionId),
   ]).catch((error) => {
     throw withTranscriptionStage(error, "persist");

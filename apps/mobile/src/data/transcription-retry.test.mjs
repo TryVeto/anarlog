@@ -12,6 +12,7 @@ const fixture = (globalThis.transcriptionRetryFixture = {
     apiKey: "synthetic-key",
   },
   pending: true,
+  captureStartedAt: 1730000000000,
   resolutions: 0,
   requests: 0,
   transactions: [],
@@ -29,7 +30,7 @@ const mocks = {
     export async function execute(sql, params) {
       if (!f.pending) return [];
       if (sql.includes('SELECT attachment.session_id')) return [{session_id: f.sessionId}];
-      return [{content_type: 'audio/wav', size_bytes: 1024, local_relative_path: 'audio.wav'}];
+      return [{content_type: 'audio/wav', size_bytes: 1024, local_relative_path: 'audio.wav', capture_started_at_ms: f.captureStartedAt}];
     }
     export async function executeTransaction(statements) { f.transactions.push(statements); f.pending = false; }
   `,
@@ -90,6 +91,10 @@ test("live-only recordings stop automatic retries but can be recovered manually 
   assert.equal(fixture.requests, 1);
   assert.equal(fixture.transactions.length, 1);
   assert.equal(fixture.pending, false);
+  const persistedTranscript = fixture.transactions
+    .at(-1)
+    .find(({ sql }) => sql.includes("INSERT INTO transcripts"));
+  assert.equal(persistedTranscript.params[4], fixture.captureStartedAt);
   assert.ok(fixture.summaries.includes(fixture.sessionId));
 });
 

@@ -1,7 +1,7 @@
 use anlg_transcript::{
     RenderTranscriptHuman, RenderTranscriptRequest, SpeakerContext, StoredLiveTranscriptDelta,
-    materialize_live_transcript, parse_stored_speaker_hints, parse_stored_transcript_words,
-    render_input_from_stored, render_transcript_segments,
+    StoredSpeakerHint, materialize_live_transcript, parse_stored_speaker_hints,
+    parse_stored_transcript_words, render_input_from_stored, render_transcript_segments,
 };
 use serde::{Deserialize, Serialize};
 
@@ -39,16 +39,62 @@ pub fn render_stored_transcript(request_json: String) -> Result<String, BridgeEr
         .map_err(|error| BridgeError::InvalidParamsJson {
             reason: error.to_string(),
         })?;
+    let mut stored: Vec<serde_json::Value> =
+        serde_json::from_str(&request.words_json).map_err(serialization_error)?;
+    let mut hints = parse_stored_speaker_hints(&request.speaker_hints_json);
+    for (index, word) in stored.iter_mut().enumerate() {
+        let Some(word) = word.as_object_mut() else {
+            continue;
+        };
+        if !word.get("id").is_some_and(serde_json::Value::is_string) {
+            word.insert(
+                "id".into(),
+                serde_json::json!(format!("{}:{index}", request.id)),
+            );
+        }
+        let id = word["id"].as_str().unwrap();
+        if let Some(speaker) = word
+            .get("speaker_index")
+            .and_then(serde_json::Value::as_i64)
+            && !hints.iter().any(|hint| {
+                hint.hint_type == "provider_speaker_index" && hint.word_id.as_deref() == Some(id)
+            })
+        {
+            hints.push(StoredSpeakerHint {
+                id: format!("{id}:provider_speaker_index"),
+                word_id: Some(id.to_owned()),
+                hint_type: "provider_speaker_index".into(),
+                value: serde_json::json!({"speaker_index": speaker, "channel": word.get("channel").and_then(serde_json::Value::as_i64).unwrap_or(0)}),
+            });
+        }
+    }
     let (words, hints) = materialize_live_transcript(
-        parse_stored_transcript_words(&request.words_json),
-        parse_stored_speaker_hints(&request.speaker_hints_json),
+        parse_stored_transcript_words(
+            &serde_json::to_string(&stored).map_err(serialization_error)?,
+        ),
+        hints,
         &deltas,
     );
     let input = render_input_from_stored(Some(request.started_at_ms), &words, &hints);
     let context = request
         .speaker_context_json
         .as_deref()
-        .and_then(|json| serde_json::from_str::<SpeakerContext>(json).ok());
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+        .and_then(|value| {
+            value
+                .get("intervals")
+                .and_then(serde_json::Value::as_array)
+                .cloned()
+        })
+        .map(|intervals| SpeakerContext {
+            intervals: intervals
+                .into_iter()
+                .filter_map(|value| {
+                    serde_json::from_value::<anlg_transcript::SpeakerContextInterval>(value).ok()
+                })
+                .filter(|interval| interval.start_ms < interval.end_ms)
+                .collect(),
+        });
     let segments = render_transcript_segments(RenderTranscriptRequest {
         transcripts: input.into_iter().collect(),
         speaker_context: context,
@@ -104,6 +150,18 @@ mod tests {
     }
 
     #[test]
+    fn legacy_words_without_ids_keep_text_and_word_level_speakers() {
+        let mut request = request(&[]);
+        request["words_json"] = json!(
+            r#"[{"text":"Hello","start_ms":0,"end_ms":100,"channel":0,"speaker_index":0},{"text":"Hi","start_ms":100,"end_ms":200,"channel":0,"speaker_index":1}]"#
+        );
+        let segments = render(&request);
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0]["text"], "Hello");
+        assert_eq!(segments[1]["speaker"], "Speaker 2");
+    }
+
+    #[test]
     fn shared_phone_speakers_survive_live_correction_and_reload() {
         let first = word("a", "Hello", 0, 0, 0);
         let second = word("b", "Hi", 0, 1, 100);
@@ -146,6 +204,13 @@ mod tests {
             }]})
             .to_string()
         );
+        let mut context: Value =
+            serde_json::from_str(request["speaker_context_json"].as_str().unwrap()).unwrap();
+        context["intervals"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"start_ms": 3000}));
+        request["speaker_context_json"] = json!(context.to_string());
         let segments = render(&request);
         assert_eq!(
             segments

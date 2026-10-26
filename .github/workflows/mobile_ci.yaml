@@ -124,6 +124,7 @@ jobs:
           path: crates/cloudsync/vendor/cloudsync/apple/CloudSync.xcframework
           if-no-files-found: error
           retention-days: 7
+      - run: cargo test --locked -p mobile-bridge --lib
       - run: cargo xtask mobile-bridge ios
       - run: |
           pnpm -F @anlg/mobile exec expo run:ios \
