@@ -4,6 +4,7 @@
 export type SessionConflictRow = {
   id: string;
   row_id: string;
+  session_id?: string;
   table_name: string;
   field_name: string;
   lost_side: string;
@@ -15,6 +16,7 @@ export type SessionConflictRow = {
 export type SessionConflict = {
   id: string;
   sessionId: string;
+  documentId?: string;
   field: "body" | "title";
   lostSide: "local" | "remote";
   at: string;
@@ -24,6 +26,7 @@ export type SessionConflict = {
 
 export type SessionVersionRow = {
   id: string;
+  document_id?: string;
   body: string;
   body_format: string;
   source: string;
@@ -32,6 +35,7 @@ export type SessionVersionRow = {
 
 export type VersionHistoryEntry = {
   id: string;
+  documentId?: string;
   label: string;
   at: string;
   preview: string;
@@ -109,7 +113,10 @@ export function mapConflictRows(rows: SessionConflictRow[]): SessionConflict[] {
     if (row.field_name !== "body" && row.field_name !== "title") continue;
     conflicts.push({
       id: row.id,
-      sessionId: row.row_id,
+      sessionId: row.session_id ?? row.row_id,
+      ...(row.table_name === "session_documents"
+        ? { documentId: row.row_id }
+        : {}),
       field: row.field_name,
       lostSide: row.lost_side === "local" ? "local" : "remote",
       at: conflictTime(row.edited_at_ms, row.created_at),
@@ -134,6 +141,7 @@ export function buildVersionHistory(
     if (conflict.field !== "body") continue;
     entries.push({
       id: conflict.id,
+      ...(conflict.documentId ? { documentId: conflict.documentId } : {}),
       label: "Other device",
       at: conflict.at,
       preview: previewFromBody(conflict.value, conflict.bodyFormat),
@@ -149,6 +157,7 @@ export function buildVersionHistory(
         : bodyFormatFromBody(version.body);
     entries.push({
       id: version.id,
+      ...(version.document_id ? { documentId: version.document_id } : {}),
       label: version.source === "sync" ? "Synced" : "This device",
       at: version.created_at,
       preview: previewFromBody(version.body, bodyFormat),

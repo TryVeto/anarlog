@@ -284,17 +284,30 @@ export async function saveSessionNote(
     const matches = `SELECT 1 FROM session_documents AS document
       JOIN sessions AS session ON session.id = document.session_id
       WHERE document.id = ? AND document.session_id = ? AND document.kind = 'note'
-        AND document.body = ? AND document.body_format = ?
+        AND document.body = ? AND document.body_format = ? AND session.title = ?
         AND document.deleted_at IS NULL AND session.deleted_at IS NULL`;
-    const matchParams = [base.id, sessionId, base.body, base.bodyFormat];
+    const matchParams = [
+      base.id,
+      sessionId,
+      base.body,
+      base.bodyFormat,
+      input.baseTitle ?? input.title,
+    ];
     const results = await executeTransaction([
       {
         // Keep the losing draft recoverable without replacing newly synced content.
         sql: `INSERT INTO e2ee_field_conflicts
           (id, workspace_id, table_name, row_id, field_name, lost_side, value_json, created_at)
-          SELECT ?, workspace_id, 'session_documents', id, 'body', 'local', ?, ? FROM sessions
+          SELECT ?, workspace_id, 'session_documents', ?, 'body', 'local', ?, ? FROM sessions
           WHERE id = ? AND NOT EXISTS (${matches})`,
-        params: [id(), JSON.stringify(body), now, sessionId, ...matchParams],
+        params: [
+          id(),
+          base.id,
+          JSON.stringify(body),
+          now,
+          sessionId,
+          ...matchParams,
+        ],
       },
       {
         sql: `UPDATE session_documents SET body = ?, body_format = ?, updated_at = ?

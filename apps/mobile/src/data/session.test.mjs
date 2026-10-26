@@ -40,7 +40,8 @@ const hooks = registerHooks({
   },
 });
 const { saveSessionNote, useSessionDetail } = await import("./session.ts");
-const { useSessionVersionHistory } = await import("./conflicts.ts");
+const { useSessionVersionHistory, restoreHistoryEntry } =
+  await import("./conflicts.ts");
 const { createNoteDraft } = await import("../note/note-draft.ts");
 for (const name of [
   "20260710223922_canonical_data_model.sql",
@@ -175,4 +176,66 @@ test("opening before note sync never saves empty content, and racing edits prese
     "string",
   );
   assert.equal(useSessionDetail("offline").data.noteText, "Written offline");
+});
+
+test("a remote rename preserves the body edit as a conflict instead of writing an old heading", async () => {
+  db.exec(
+    "INSERT INTO sessions (id, title) VALUES ('renamed', 'Planning'); INSERT INTO session_documents (id, session_id, kind, body_format, body) VALUES ('renamed', 'renamed', 'note', 'markdown', '# Planning\n\nOriginal')",
+  );
+  const base = useSessionDetail("renamed").data.document;
+  db.exec("UPDATE sessions SET title = 'Roadmap' WHERE id = 'renamed'");
+  assert.equal(
+    await saveSessionNote("renamed", {
+      title: "Planning",
+      baseTitle: "Planning",
+      base,
+      bodyText: "Mobile edit",
+      bodyFormat: "markdown",
+    }),
+    null,
+  );
+  assert.equal(useSessionDetail("renamed").data.title, "Roadmap");
+  assert.equal(useSessionDetail("renamed").data.noteText, "Original");
+  assert.ok(
+    useSessionVersionHistory("renamed").data.some((entry) =>
+      entry.body.includes("Mobile edit"),
+    ),
+  );
+});
+
+test("fallback note conflicts retain their identity through history and restore", async () => {
+  db.exec(
+    "INSERT INTO sessions (id, title) VALUES ('fallback-session', 'Planning'); INSERT INTO session_documents (id, session_id, kind, body_format, body) VALUES ('fallback-note', 'fallback-session', 'note', 'markdown', '# Planning\n\nOriginal')",
+  );
+  const base = useSessionDetail("fallback-session").data.document;
+  db.exec(
+    "UPDATE session_documents SET body = '# Planning\n\nRemote' WHERE id = 'fallback-note'",
+  );
+  assert.equal(
+    await saveSessionNote("fallback-session", {
+      title: "Planning",
+      baseTitle: "Planning",
+      base,
+      bodyText: "Lost draft",
+      bodyFormat: "markdown",
+    }),
+    null,
+  );
+  const entry = useSessionVersionHistory("fallback-session").data.find(
+    (entry) => entry.body.includes("Lost draft"),
+  );
+  assert.equal(entry.documentId, "fallback-note");
+  await restoreHistoryEntry("fallback-session", entry);
+  assert.equal(
+    useSessionDetail("fallback-session").data.noteText,
+    "Lost draft",
+  );
+  assert.equal(
+    db
+      .prepare(
+        "SELECT count(*) AS n FROM session_documents WHERE session_id = 'fallback-session'",
+      )
+      .get().n,
+    1,
+  );
 });

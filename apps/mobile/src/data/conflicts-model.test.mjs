@@ -103,6 +103,7 @@ test("maps conflict rows and drops values that are not text", () => {
     {
       id: "conflict-1",
       sessionId: "session-1",
+      documentId: "session-1",
       field: "body",
       lostSide: "remote",
       at: "2026-09-09T10:00:00.000Z",
