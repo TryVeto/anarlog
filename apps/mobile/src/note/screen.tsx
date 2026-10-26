@@ -58,6 +58,7 @@ export function NoteScreen({
     remove,
     snapshot,
     restored,
+    bodyDraft,
     onRestored: handleRestored,
   } = useNoteDraft(id, data);
   const [selection, setSelection] = useState<SessionViewSelection | null>(null);
@@ -322,7 +323,7 @@ export function NoteScreen({
           )}
           <View style={[styles.editor, !showMemos && styles.hidden]}>
             <NoteFiles sessionId={id} attachments={noteAttachments} />
-            {!data.plainEditable && (
+            {data.document && !data.plainEditable && (
               <View style={styles.readOnlyChip}>
                 <Ionicons
                   name="lock-closed-outline"
@@ -339,17 +340,25 @@ export function NoteScreen({
               onBeforeRestore={flush}
               onRestored={handleRestored}
             />
-            <BodyEditor
-              key={`${data.id}:${restored?.bodyToken ?? 0}`}
-              accessoryId={`note-editor-controls-${data.id}`}
-              defaultBodyFormat={restored?.bodyFormat ?? data.bodyFormat}
-              defaultValue={restored?.bodyText ?? data.noteText}
-              editable={data.plainEditable}
-              onAttach={handleAttachFile}
-              onChangeText={(body, bodyFormat) => onEdit({ body, bodyFormat })}
-              onCommit={flush}
-              onFocusChange={setEditorFocused}
-            />
+            {!data.document ? (
+              <Text style={styles.readOnlyLabel}>
+                Waiting for note content to sync…
+              </Text>
+            ) : (
+              <BodyEditor
+                key={`${data.id}:${restored?.bodyToken ?? 0}`}
+                accessoryId={`note-editor-controls-${data.id}`}
+                bodyFormat={bodyDraft?.format ?? data.bodyFormat}
+                value={bodyDraft?.text ?? data.noteText}
+                editable={data.plainEditable}
+                onAttach={handleAttachFile}
+                onChangeText={(body, bodyFormat) =>
+                  onEdit({ body, bodyFormat })
+                }
+                onCommit={flush}
+                onFocusChange={setEditorFocused}
+              />
+            )}
           </View>
         </View>
       )}

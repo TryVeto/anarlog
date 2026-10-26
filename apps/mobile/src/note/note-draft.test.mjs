@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { createNoteDraft } from "./note-draft.ts";
 
 const note = {
+  document: { id: "session", body: "", bodyFormat: "prosemirror_json" },
   id: "session",
   title: "Original",
   createdAt: "",
@@ -18,7 +19,11 @@ function setup(overrides = {}) {
   const draft = createNoteDraft({
     getNote: () => note,
     saveNote: async (value) => {
-      writes.push(value);
+      writes.push({
+        title: value.title,
+        bodyText: value.bodyText,
+        bodyFormat: value.bodyFormat,
+      });
     },
     saveTitle: async (title) => {
       writes.push({ title });
@@ -47,7 +52,7 @@ test("body autosaves retain the edited title until the live query catches up", a
     {
       title: "Title from sync",
       bodyText: "After sync",
-      bodyFormat: "prosemirror_json",
+      bodyFormat: "markdown",
     },
   ]);
 });
@@ -82,7 +87,11 @@ test("a failed save keeps newer typing for retry and can block summary generatio
         return new Promise((_, reject) => {
           rejectSave = reject;
         });
-      writes.push(value);
+      writes.push({
+        title: value.title,
+        bodyText: value.bodyText,
+        bodyFormat: value.bodyFormat,
+      });
       return Promise.resolve();
     },
   });
@@ -166,7 +175,11 @@ test("failed deletion automatically retries edits from a failed autosave", async
         return new Promise((_, reject) => {
           rejectSave = reject;
         });
-      writes.push(value);
+      writes.push({
+        title: value.title,
+        bodyText: value.bodyText,
+        bodyFormat: value.bodyFormat,
+      });
       return Promise.resolve();
     },
   });
@@ -187,4 +200,24 @@ test("failed deletion automatically retries edits from a failed autosave", async
       bodyFormat: "prosemirror_json",
     },
   ]);
+});
+
+test("synced content replaces a saved draft and becomes the next edit base", async () => {
+  let current = note;
+  const bases = [];
+  const { draft } = setup({
+    getNote: () => current,
+    saveNote: async (value) => {
+      bases.push(value.base.body);
+      return value.bodyText;
+    },
+  });
+  draft.edit({ body: "Local edit" });
+  await draft.flush();
+  assert.equal(draft.body().text, "Local edit");
+  current = { ...note, document: { ...note.document, body: "Synced edit" } };
+  assert.equal(draft.body(), null);
+  draft.edit({ body: "Next edit" });
+  await draft.flush();
+  assert.deepEqual(bases, ["", "Synced edit"]);
 });

@@ -16,8 +16,8 @@ import { createStyleHook, useColors } from "@/settings/theme-provider";
 
 export function BodyEditor({
   accessoryId,
-  defaultBodyFormat,
-  defaultValue,
+  bodyFormat,
+  value,
   editable,
   onAttach,
   onChangeText,
@@ -25,8 +25,8 @@ export function BodyEditor({
   onFocusChange,
 }: {
   accessoryId: string;
-  defaultBodyFormat: "prosemirror_json" | "markdown";
-  defaultValue: string;
+  bodyFormat: "prosemirror_json" | "markdown";
+  value: string;
   editable: boolean;
   onAttach: (signal: AbortSignal) => Promise<{ markdown: string } | null>;
   onChangeText: (
@@ -39,15 +39,13 @@ export function BodyEditor({
   const styles = useStyles();
   const Colors = useColors();
   const inputRef = useRef<TextInput>(null);
-  const textRef = useRef(defaultValue);
-  const bodyFormatRef = useRef(defaultBodyFormat);
+  const textRef = useRef(value);
+  const bodyFormatRef = useRef(bodyFormat);
+  textRef.current = value;
+  bodyFormatRef.current = bodyFormat;
   const selectionRef = useRef({ start: 0, end: 0 });
-  // Normal typing stays native so iOS retains its caret and scroll state;
-  // toolbar commands briefly override both without remounting the editor.
-  const [nativeOverride, setNativeOverride] = useState<{
-    text: string;
-    selection: { start: number; end: number };
-  }>();
+  // Toolbar commands update the selection without remounting the editor.
+  const [selection, setSelection] = useState<{ start: number; end: number }>();
   const [androidKeyboardVisible, setAndroidKeyboardVisible] = useState(false);
   const [attaching, setAttaching] = useState(false);
   const attachControllerRef = useRef<AbortController | null>(null);
@@ -90,13 +88,10 @@ export function BodyEditor({
     textRef.current = formatted.text;
     bodyFormatRef.current = formatted.bodyFormat;
     selectionRef.current = formatted.selection;
-    setNativeOverride({
-      text: formatted.text,
-      selection: formatted.selection,
-    });
+    setSelection(formatted.selection);
     onChangeText(formatted.text, formatted.bodyFormat);
     inputRef.current?.focus();
-    requestAnimationFrame(() => setNativeOverride(undefined));
+    requestAnimationFrame(() => setSelection(undefined));
   };
 
   const handleDismissKeyboard = () => {
@@ -129,12 +124,12 @@ export function BodyEditor({
       textRef.current = inserted.text;
       bodyFormatRef.current = "markdown";
       selectionRef.current = inserted.selection;
-      setNativeOverride(inserted);
+      setSelection(inserted.selection);
       onChangeText(inserted.text, "markdown");
       onCommit();
       inputRef.current?.focus();
       requestAnimationFrame(() => {
-        if (editorActiveRef.current) setNativeOverride(undefined);
+        if (editorActiveRef.current) setSelection(undefined);
       });
     } finally {
       if (attachControllerRef.current === controller) {
@@ -152,9 +147,8 @@ export function BodyEditor({
         multiline
         editable={editable && !attaching}
         inputAccessoryViewID={Platform.OS === "ios" ? accessoryId : undefined}
-        defaultValue={defaultValue}
-        value={nativeOverride?.text}
-        selection={nativeOverride?.selection}
+        value={value}
+        selection={selection}
         placeholder="Start typing…"
         placeholderTextColor={Colors.muted}
         textAlignVertical="top"

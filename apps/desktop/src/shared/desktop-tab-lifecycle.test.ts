@@ -2,19 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createDesktopTabCloseHandler,
-  createSessionTabCloseHandler,
   initializeDesktopTabs,
 } from "./desktop-tab-lifecycle";
 
-import {
-  createContactsTab,
-  createSessionTab,
-} from "~/store/zustand/tabs/test-utils";
-
-const flushAsyncCleanup = () =>
-  new Promise((resolve) => {
-    setTimeout(resolve, 0);
-  });
+import * as sessionQueries from "~/session/queries";
+import { createSessionTab } from "~/store/zustand/tabs/test-utils";
 
 describe("desktop tab lifecycle", () => {
   describe("initializeDesktopTabs", () => {
@@ -78,86 +70,30 @@ describe("desktop tab lifecycle", () => {
     });
   });
 
-  describe("createSessionTabCloseHandler", () => {
-    it("cleans up empty sessions on close", async () => {
-      const invalidateSessionResource = vi.fn();
-      const deleteSessionFn = vi.fn().mockResolvedValue({ session: {} });
-      const handler = createSessionTabCloseHandler({
-        invalidateSessionResource,
-        getSessionMode: vi.fn().mockReturnValue(null),
-        isSessionEmptyFn: vi.fn().mockResolvedValue(true),
-        deleteSessionFn,
-      });
-
-      handler(createSessionTab({ id: "session-1" }));
-
-      await flushAsyncCleanup();
-
-      expect(invalidateSessionResource).toHaveBeenCalledWith("session-1");
-      expect(deleteSessionFn).toHaveBeenCalledWith("session-1");
+  it("closing a partially synced meeting preserves it for incoming content", async () => {
+    const sessions = new Map([["session-1", { body: "", deleted: false }]]);
+    vi.spyOn(sessionQueries, "isSessionEmpty").mockResolvedValue(true);
+    vi.spyOn(sessionQueries, "softDeleteSession").mockImplementation(
+      async (id) => {
+        sessions.get(id)!.deleted = true;
+        return null;
+      },
+    );
+    createDesktopTabCloseHandler({ purgePreview: vi.fn() })(
+      createSessionTab({ id: "session-1" }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    sessions.get("session-1")!.body = "Meeting notes received from mobile";
+    expect(sessions.get("session-1")).toEqual({
+      body: "Meeting notes received from mobile",
+      deleted: false,
     });
-
-    it("keeps sessions that contain SQLite data", async () => {
-      const invalidateSessionResource = vi.fn();
-      const deleteSessionFn = vi.fn();
-      const isSessionEmptyFn = vi.fn().mockResolvedValue(false);
-      const handler = createSessionTabCloseHandler({
-        invalidateSessionResource,
-        getSessionMode: vi.fn().mockReturnValue(null),
-        isSessionEmptyFn,
-        deleteSessionFn,
-      });
-
-      handler(createSessionTab({ id: "session-1" }));
-
-      await flushAsyncCleanup();
-
-      expect(deleteSessionFn).not.toHaveBeenCalled();
-      expect(invalidateSessionResource).not.toHaveBeenCalled();
-    });
-
-    it("does not invalidate when the SQLite delete loses a race", async () => {
-      const invalidateSessionResource = vi.fn();
-      const deleteSessionFn = vi.fn().mockResolvedValue(null);
-      const handler = createSessionTabCloseHandler({
-        invalidateSessionResource,
-        getSessionMode: vi.fn().mockReturnValue(null),
-        isSessionEmptyFn: vi.fn().mockResolvedValue(true),
-        deleteSessionFn,
-      });
-
-      handler(createSessionTab({ id: "session-1" }));
-
-      await flushAsyncCleanup();
-
-      expect(deleteSessionFn).toHaveBeenCalledWith("session-1");
-      expect(invalidateSessionResource).not.toHaveBeenCalled();
-    });
-
-    it("skips cleanup for non-inactive sessions and non-session tabs", () => {
-      for (const sessionMode of ["active", "finalizing", "running_batch"]) {
-        const invalidateSessionResource = vi.fn();
-        const deleteSessionFn = vi.fn();
-        const handler = createSessionTabCloseHandler({
-          invalidateSessionResource,
-          getSessionMode: vi.fn().mockReturnValue(sessionMode),
-          isSessionEmptyFn: vi.fn().mockResolvedValue(true),
-          deleteSessionFn,
-        });
-
-        handler(createSessionTab({ id: `session-${sessionMode}` }));
-        handler(createContactsTab());
-
-        expect(invalidateSessionResource).not.toHaveBeenCalled();
-        expect(deleteSessionFn).not.toHaveBeenCalled();
-      }
-    });
+    vi.restoreAllMocks();
   });
 
   it("purges ephemeral previews through the central close handler", () => {
     const purgePreview = vi.fn();
     const handler = createDesktopTabCloseHandler({
-      invalidateSessionResource: vi.fn(),
       purgePreview,
     });
 

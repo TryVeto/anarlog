@@ -1,9 +1,10 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 
 import type { RestoredNote } from "@/data/conflicts";
 import { saveSessionNote, saveSessionTitle } from "@/data/session";
 import type { SessionDetail } from "@/data/session-detail";
 import { captureOperationalError } from "@/lib/error-reporting";
+import { showToast } from "@/lib/toast";
 import { useMountEffect } from "@/lib/use-mount-effect";
 
 import { createNoteDraft } from "./note-draft";
@@ -16,7 +17,18 @@ export function useNoteDraft(sessionId: string, data: SessionDetail | null) {
       getNote: () => dataRef.current,
       saveNote: (note) => saveSessionNote(sessionId, note),
       saveTitle: (title) => saveSessionTitle(sessionId, title),
+      onConflict: () =>
+        showToast({
+          id: `note-conflict-${sessionId}`,
+          title: "Note updated on another device",
+          description: "Your edits are saved in version history.",
+        }),
       onError: (error, patch) => {
+        showToast({
+          id: `note-save-error-${sessionId}`,
+          title: "Couldn’t save note",
+          description: "Your latest edits could not be saved.",
+        });
         captureOperationalError(error, {
           operation: "session_note_save",
           tags: {
@@ -29,7 +41,8 @@ export function useNoteDraft(sessionId: string, data: SessionDetail | null) {
       },
     }),
   );
-  // Restores remount uncontrolled inputs; title-only restores preserve the body caret.
+  useSyncExternalStore(draft.subscribe, draft.revision);
+  // Body restores reset the caret; title-only restores leave it in place.
   const [restored, setRestored] = useState<
     (RestoredNote & { titleToken: number; bodyToken: number }) | null
   >(null);
@@ -41,6 +54,7 @@ export function useNoteDraft(sessionId: string, data: SessionDetail | null) {
   return {
     ...draft,
     restored,
+    bodyDraft: draft.body(),
     onRestored(note: RestoredNote) {
       draft.restore(note.title);
       setRestored((current) => ({

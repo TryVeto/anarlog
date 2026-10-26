@@ -6,6 +6,7 @@ import {
 import {
   mapSessionDetailRows,
   type SessionDetail,
+  type NoteDocument,
   type SessionDetailRow,
 } from "@/data/session-detail";
 import { execute, executeTransaction, useLiveQuery } from "@/db";
@@ -154,7 +155,8 @@ SELECT
   sessions.id,
   sessions.title,
   sessions.created_at,
-  COALESCE(note.body, '') AS raw_body,
+  note.id AS note_id,
+  note.body AS raw_body,
   COALESCE(note.body_format, 'prosemirror_json') AS raw_body_format,
   COALESCE((
     SELECT json_group_array(json_object(
@@ -267,13 +269,53 @@ export async function saveSessionNote(
     title: string;
     bodyText: string;
     bodyFormat: "prosemirror_json" | "markdown";
+    base?: NoteDocument;
+    baseTitle?: string;
   },
-): Promise<void> {
+): Promise<string | null> {
   const now = nowIso();
   const body =
     input.bodyFormat === "markdown"
       ? markdownWithTitle(input.title, input.bodyText)
       : plainTextToDoc(input.title, input.bodyText);
+
+  if (input.base) {
+    const base = input.base;
+    const matches = `SELECT 1 FROM session_documents AS document
+      JOIN sessions AS session ON session.id = document.session_id
+      WHERE document.id = ? AND document.session_id = ? AND document.kind = 'note'
+        AND document.body = ? AND document.body_format = ?
+        AND document.deleted_at IS NULL AND session.deleted_at IS NULL`;
+    const matchParams = [base.id, sessionId, base.body, base.bodyFormat];
+    const results = await executeTransaction([
+      {
+        // Keep the losing draft recoverable without replacing newly synced content.
+        sql: `INSERT INTO e2ee_field_conflicts
+          (id, workspace_id, table_name, row_id, field_name, lost_side, value_json, created_at)
+          SELECT ?, workspace_id, 'session_documents', id, 'body', 'local', ?, ? FROM sessions
+          WHERE id = ? AND NOT EXISTS (${matches})`,
+        params: [id(), JSON.stringify(body), now, sessionId, ...matchParams],
+      },
+      {
+        sql: `UPDATE session_documents SET body = ?, body_format = ?, updated_at = ?
+          WHERE id = ? AND EXISTS (${matches})`,
+        params: [body, input.bodyFormat, now, base.id, ...matchParams],
+      },
+      {
+        sql: `${SESSION_TITLE_UPDATE_SQL} AND changes() = 1 AND title = ?`,
+        params: [input.title, now, sessionId, input.baseTitle ?? input.title],
+      },
+    ]);
+    if (results[1] !== 1) {
+      if (results[0] !== 1)
+        throw new Error(
+          "The note is no longer available. Your edits could not be saved.",
+        );
+      return null;
+    }
+    captureNoteEditOnce(sessionId, "body", input.bodyFormat);
+    return body;
+  }
 
   await executeTransaction([
     {
@@ -286,6 +328,7 @@ export async function saveSessionNote(
     },
   ]);
   captureNoteEditOnce(sessionId, "body", input.bodyFormat);
+  return body;
 }
 
 // Mirrors desktop buildSessionTombstoneStatements: one transaction, the same

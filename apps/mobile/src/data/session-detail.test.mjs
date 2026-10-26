@@ -29,6 +29,7 @@ function mapSessionDetailRows(rows) {
 
 const baseRow = {
   id: "session-1",
+  note_id: "session-1",
   title: "Weekly planning",
   created_at: "2026-08-17T00:00:00.000Z",
   raw_body: JSON.stringify({
@@ -51,6 +52,11 @@ const baseRow = {
 
 test("maps a canonical summary alongside the editable note", () => {
   assert.deepEqual(mapSessionDetailRows([baseRow]), {
+    document: {
+      id: "session-1",
+      body: baseRow.raw_body,
+      bodyFormat: "prosemirror_json",
+    },
     id: "session-1",
     title: "Weekly planning",
     createdAt: "2026-08-17T00:00:00.000Z",
@@ -77,6 +83,7 @@ test("keeps a meeting without a generated summary as an empty note surface", () 
       },
     ]),
     {
+      document: { id: "session-1", body: "", bodyFormat: "prosemirror_json" },
       id: "session-1",
       title: "Weekly planning",
       createdAt: "2026-08-17T00:00:00.000Z",

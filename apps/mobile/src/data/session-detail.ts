@@ -6,7 +6,10 @@ import {
   stripMarkdownTitle,
 } from "./note-doc.ts";
 
+export type NoteDocument = { id: string; body: string; bodyFormat: string };
+
 export type SessionDetail = {
+  document: NoteDocument | null;
   id: string;
   title: string;
   createdAt: string;
@@ -20,7 +23,8 @@ export type SessionDetailRow = {
   id: string;
   title: string;
   created_at: string;
-  raw_body: string;
+  note_id: string | null;
+  raw_body: string | null;
   raw_body_format: string;
   summary_documents_json: string;
 };
@@ -43,7 +47,7 @@ export function mapSessionDetailRows(
   const row = rows[0];
   if (!row) return null;
   const isMarkdown = row.raw_body_format === "markdown";
-  const note = documentText(row.raw_body, row.raw_body_format);
+  const note = documentText(row.raw_body ?? "", row.raw_body_format);
   const summary = resolveSummaryDocument(
     JSON.parse(row.summary_documents_json) as Array<{
       id: string;
@@ -69,12 +73,23 @@ export function mapSessionDetailRows(
       : "");
 
   return {
+    document:
+      row.note_id === null || row.raw_body === null
+        ? null
+        : {
+            id: row.note_id,
+            body: row.raw_body,
+            bodyFormat: row.raw_body_format,
+          },
     id: row.id,
     title: row.title,
     createdAt: row.created_at,
     noteText: note.text,
     bodyFormat: isMarkdown ? "markdown" : "prosemirror_json",
-    plainEditable: isMarkdown || isPlainTextDoc(row.raw_body),
+    plainEditable:
+      row.note_id !== null &&
+      row.raw_body !== null &&
+      (isMarkdown || isPlainTextDoc(row.raw_body)),
     summary:
       !summary || !hasSummaryContent(summary.body, row.title)
         ? null
