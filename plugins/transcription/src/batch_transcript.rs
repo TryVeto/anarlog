@@ -6,8 +6,8 @@ use anlg_db_app::{
 use anlg_transcript::{
     BatchRefinementOutcome, BatchRefinementRequest, BatchRefinementSource,
     BatchTranscriptPromotion, StoredLiveTranscriptDelta, StoredSpeakerHint, StoredTranscriptWord,
-    materialize_live_transcript, parse_stored_speaker_hints, parse_stored_transcript_words,
-    refine_batch_transcript, serialize_batch_transcript_hints, serialize_batch_transcript_words,
+    materialize_live_transcript, parse_stored_speaker_hints, refine_batch_transcript,
+    serialize_batch_transcript_hints, serialize_batch_transcript_words,
 };
 use serde::Serialize;
 use sqlx::SqlitePool;
@@ -174,14 +174,23 @@ pub async fn save_batch_transcript(
 }
 
 fn materialize_source_row(row: BatchTranscriptRow) -> BatchRefinementSource {
-    let words = parse_stored_transcript_words(&row.words_json);
-    let hints = parse_stored_speaker_hints(&row.speaker_hints_json);
+    let (words, hints) = anlg_transcript::normalize_stored_transcript(
+        &row.id,
+        serde_json::from_str(&row.words_json).unwrap_or_default(),
+        parse_stored_speaker_hints(&row.speaker_hints_json),
+    );
     let deltas: Vec<StoredLiveTranscriptDelta> = row
         .pending_delta_jsons
         .iter()
         .filter_map(|delta_json| serde_json::from_str(delta_json).ok())
         .collect();
-    let (words, speaker_hints) = materialize_live_transcript(words, hints, &deltas);
+    let (mut words, mut speaker_hints) = materialize_live_transcript(words, hints, &deltas);
+    anlg_transcript::normalize_legacy_batch_channels(
+        &row.source,
+        &row.provider,
+        &mut words,
+        &mut speaker_hints,
+    );
 
     BatchRefinementSource {
         id: row.id,

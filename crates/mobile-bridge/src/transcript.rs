@@ -1,7 +1,7 @@
 use anlg_transcript::{
     RenderTranscriptHuman, RenderTranscriptRequest, SpeakerContext, StoredLiveTranscriptDelta,
-    StoredSpeakerHint, materialize_live_transcript, parse_stored_speaker_hints,
-    parse_stored_transcript_words, render_input_from_stored, render_transcript_segments,
+    materialize_live_transcript, normalize_stored_transcript, parse_stored_speaker_hints,
+    render_input_from_stored, render_transcript_segments,
 };
 use serde::{Deserialize, Serialize};
 
@@ -10,6 +10,10 @@ use crate::error::{BridgeError, serialization_error};
 #[derive(Deserialize)]
 struct Request {
     id: String,
+    #[serde(default)]
+    source: String,
+    #[serde(default)]
+    provider: String,
     started_at_ms: i64,
     owner_user_id: Option<String>,
     words_json: String,
@@ -39,41 +43,18 @@ pub fn render_stored_transcript(request_json: String) -> Result<String, BridgeEr
         .map_err(|error| BridgeError::InvalidParamsJson {
             reason: error.to_string(),
         })?;
-    let mut stored: Vec<serde_json::Value> =
-        serde_json::from_str(&request.words_json).map_err(serialization_error)?;
-    let mut hints = parse_stored_speaker_hints(&request.speaker_hints_json);
-    for (index, word) in stored.iter_mut().enumerate() {
-        let Some(word) = word.as_object_mut() else {
-            continue;
-        };
-        if !word.get("id").is_some_and(serde_json::Value::is_string) {
-            word.insert(
-                "id".into(),
-                serde_json::json!(format!("{}:{index}", request.id)),
-            );
-        }
-        let id = word["id"].as_str().unwrap();
-        if let Some(speaker) = word
-            .get("speaker_index")
-            .and_then(serde_json::Value::as_i64)
-            && !hints.iter().any(|hint| {
-                hint.hint_type == "provider_speaker_index" && hint.word_id.as_deref() == Some(id)
-            })
-        {
-            hints.push(StoredSpeakerHint {
-                id: format!("{id}:provider_speaker_index"),
-                word_id: Some(id.to_owned()),
-                hint_type: "provider_speaker_index".into(),
-                value: serde_json::json!({"speaker_index": speaker, "channel": word.get("channel").and_then(serde_json::Value::as_i64).unwrap_or(0)}),
-            });
-        }
-    }
-    let (words, hints) = materialize_live_transcript(
-        parse_stored_transcript_words(
-            &serde_json::to_string(&stored).map_err(serialization_error)?,
-        ),
-        hints,
-        &deltas,
+    let stored = serde_json::from_str(&request.words_json).map_err(serialization_error)?;
+    let (words, hints) = normalize_stored_transcript(
+        &request.id,
+        stored,
+        parse_stored_speaker_hints(&request.speaker_hints_json),
+    );
+    let (mut words, mut hints) = materialize_live_transcript(words, hints, &deltas);
+    anlg_transcript::normalize_legacy_batch_channels(
+        &request.source,
+        &request.provider,
+        &mut words,
+        &mut hints,
     );
     let input = render_input_from_stored(Some(request.started_at_ms), &words, &hints);
     let context = request

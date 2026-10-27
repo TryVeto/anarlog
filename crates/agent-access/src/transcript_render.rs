@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
 use anlg_transcript::{
-    ChannelProfile, IdentityAssignment, IdentityScope, RenderTranscriptHuman,
-    RenderTranscriptInput, RenderTranscriptRequest, RenderTranscriptWordInput, SpeakerContext,
+    RenderTranscriptHuman, RenderTranscriptInput, RenderTranscriptRequest, SpeakerContext,
     render_transcript_segments,
 };
 use serde_json::Value;
@@ -158,151 +157,27 @@ fn parse_speaker_context(value: &Value) -> Option<SpeakerContext> {
 }
 
 fn normalize_transcript(transcript: &Transcript) -> Option<RenderTranscriptInput> {
-    let mut words = Vec::new();
-    let mut word_index_by_id = HashMap::new();
-
-    for word in &transcript.words {
-        let (Some(id), Some(text), Some(start_ms), Some(end_ms)) = (
-            word.get("id").and_then(Value::as_str),
-            word.get("text").and_then(Value::as_str),
-            word.get("start_ms").and_then(Value::as_i64),
-            word.get("end_ms").and_then(Value::as_i64),
-        ) else {
-            return None;
-        };
-        word_index_by_id.insert(id.to_string(), words.len());
-        words.push(RenderTranscriptWordInput {
-            id: id.to_string(),
-            text: text.to_string(),
-            start_ms,
-            end_ms,
-            channel: word
-                .get("channel")
-                .and_then(Value::as_i64)
-                .map(|channel| channel as i32)
-                .unwrap_or(0),
-            speaker_index: None,
-            synthetic_timing: anlg_transcript::synthetic_timing_from_metadata(word.get("metadata")),
-        });
-    }
-
-    if words.is_empty() {
-        return None;
-    }
-
-    for hint in hints_of(&transcript.speaker_hints, "provider_speaker_index") {
-        normalize_speaker_hint(hint, &mut words, &word_index_by_id);
-    }
-    let mut assignments = Vec::new();
-    for kind in ["automatic_speaker_assignment", "user_speaker_assignment"] {
-        for hint in hints_of(&transcript.speaker_hints, kind) {
-            if let Some(assignment) = normalize_speaker_hint(hint, &mut words, &word_index_by_id) {
-                assignments.push(assignment);
-            }
-        }
-    }
-
-    Some(RenderTranscriptInput {
-        started_at: Some(transcript.started_at_ms),
-        words,
-        assignments,
-    })
-}
-
-fn hints_of<'a>(hints: &'a [Value], kind: &'a str) -> impl Iterator<Item = &'a Value> + 'a {
-    hints
-        .iter()
-        .filter(move |hint| hint.get("type").and_then(Value::as_str) == Some(kind))
-}
-
-fn normalize_speaker_hint(
-    hint: &Value,
-    words: &mut [RenderTranscriptWordInput],
-    word_index_by_id: &HashMap<String, usize>,
-) -> Option<IdentityAssignment> {
-    let word_id = hint.get("word_id").and_then(Value::as_str)?;
-    let kind = hint.get("type").and_then(Value::as_str)?;
-    let value = parse_hint_value(hint.get("value"))?;
-
-    let is_speaker_assignment = matches!(
-        kind,
-        "automatic_speaker_assignment" | "user_speaker_assignment"
+    let (mut words, mut hints) = anlg_transcript::normalize_stored_transcript(
+        &transcript.id,
+        transcript.words.clone(),
+        anlg_transcript::parse_stored_speaker_hints(
+            &serde_json::to_string(&transcript.speaker_hints).ok()?,
+        ),
     );
-    let human_id = value
-        .get("human_id")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty());
-
-    if is_speaker_assignment && let Some(human_id) = human_id {
-        if let Some(scope) = explicit_speaker_scope(&value) {
-            return Some(IdentityAssignment {
-                human_id: human_id.to_string(),
-                scope,
-            });
-        }
-        if value.get("scope").and_then(Value::as_str) == Some("segment")
-            && let Some(word_ids) = value.get("word_ids").and_then(Value::as_array)
-        {
-            let word_ids = word_ids
-                .iter()
-                .filter_map(Value::as_str)
-                .filter(|id| !id.is_empty())
-                .map(str::to_string)
-                .collect::<Vec<_>>();
-            if !word_ids.is_empty() {
-                return Some(IdentityAssignment {
-                    human_id: human_id.to_string(),
-                    scope: IdentityScope::Words { word_ids },
-                });
-            }
-        }
-    }
-
-    let word = words.get_mut(*word_index_by_id.get(word_id)?)?;
-
-    if kind == "provider_speaker_index" {
-        if let Some(speaker_index) = value.get("speaker_index").and_then(Value::as_i64) {
-            word.speaker_index = Some(speaker_index as i32);
-            if let Some(channel) = value.get("channel").and_then(Value::as_i64) {
-                word.channel = channel as i32;
-            }
-        }
+    if words.len() != transcript.words.len()
+        || words
+            .iter()
+            .any(|word| word.text.is_none() || word.start_ms.is_none() || word.end_ms.is_none())
+    {
         return None;
     }
-
-    if is_speaker_assignment && let Some(human_id) = human_id {
-        let channel = ChannelProfile::from(word.channel);
-        return Some(IdentityAssignment {
-            human_id: human_id.to_string(),
-            scope: match word.speaker_index {
-                None => IdentityScope::Channel { channel },
-                Some(speaker_index) => IdentityScope::ChannelSpeaker {
-                    channel,
-                    speaker_index,
-                },
-            },
-        });
-    }
-
-    None
-}
-
-fn explicit_speaker_scope(value: &Value) -> Option<IdentityScope> {
-    if value.get("scope").and_then(Value::as_str) != Some("speaker") {
-        return None;
-    }
-    let channel = match value.get("channel").and_then(Value::as_i64)? {
-        channel @ 0..=2 => ChannelProfile::from(channel as i32),
-        _ => return None,
-    };
-    match value.get("speaker_index") {
-        Some(Value::Number(index)) => Some(IdentityScope::ChannelSpeaker {
-            channel,
-            speaker_index: index.as_i64()? as i32,
-        }),
-        Some(Value::Null) => Some(IdentityScope::Channel { channel }),
-        _ => None,
-    }
+    anlg_transcript::normalize_legacy_batch_channels(
+        &transcript.source,
+        &transcript.provider,
+        &mut words,
+        &mut hints,
+    );
+    anlg_transcript::render_input_from_stored(Some(transcript.started_at_ms), &words, &hints)
 }
 
 fn parse_hint_value(value: Option<&Value>) -> Option<Value> {

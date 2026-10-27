@@ -6,7 +6,7 @@ use anlg_db_app::{
 use anlg_transcript::{
     RenderTranscriptHuman, RenderTranscriptRequest, RenderedTranscriptSegment,
     StoredLiveTranscriptDelta, StoredSpeakerHint, materialize_live_transcript,
-    parse_stored_speaker_hints, parse_stored_transcript_words, render_input_from_stored,
+    normalize_stored_transcript, parse_stored_speaker_hints, render_input_from_stored,
     render_transcript_segments,
 };
 use serde_json::Value;
@@ -62,14 +62,23 @@ pub async fn render_session_transcript(
 
     let mut transcripts = Vec::new();
     for row in rows {
-        let words = parse_stored_transcript_words(&row.words_json);
-        let hints = parse_stored_speaker_hints(&row.speaker_hints_json);
+        let (words, hints) = normalize_stored_transcript(
+            &row.id,
+            serde_json::from_str(&row.words_json).map_err(|error| error.to_string())?,
+            parse_stored_speaker_hints(&row.speaker_hints_json),
+        );
         let deltas = row
             .pending_delta_jsons
             .iter()
             .filter_map(|json| serde_json::from_str::<StoredLiveTranscriptDelta>(json).ok())
             .collect::<Vec<_>>();
-        let (words, hints) = materialize_live_transcript(words, hints, &deltas);
+        let (mut words, mut hints) = materialize_live_transcript(words, hints, &deltas);
+        anlg_transcript::normalize_legacy_batch_channels(
+            &row.source,
+            &row.provider,
+            &mut words,
+            &mut hints,
+        );
 
         for hint in &hints {
             if let Some(human_id) = assigned_human_id(hint) {

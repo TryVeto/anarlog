@@ -1,4 +1,4 @@
-export const SESSION_TRANSCRIPTS_SQL = `SELECT transcript.id, transcript.started_at_ms, transcript.owner_user_id, transcript.words_json, transcript.speaker_hints_json,
+export const SESSION_TRANSCRIPTS_SQL = `SELECT transcript.id, transcript.source, transcript.provider, transcript.started_at_ms, transcript.owner_user_id, transcript.words_json, transcript.speaker_hints_json,
       (SELECT json_extract(session.metadata_json, '$.speaker_context') FROM sessions AS session WHERE session.id = transcript.session_id) AS speaker_context_json,
       COALESCE((SELECT json_group_array(json(ordered_delta.delta_json)) FROM (
         SELECT delta.delta_json FROM transcript_live_deltas AS delta
@@ -15,6 +15,8 @@ export const SESSION_HAS_TRANSCRIPT_SQL = `SELECT EXISTS (
 
 export type TranscriptRow = {
   id: string;
+  source?: string;
+  provider?: string;
   started_at_ms: number;
   owner_user_id: string;
   speaker_context_json: string | null;

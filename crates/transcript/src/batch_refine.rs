@@ -70,6 +70,104 @@ pub fn parse_stored_speaker_hints(json: &str) -> Vec<StoredSpeakerHint> {
         .collect()
 }
 
+pub fn normalize_stored_transcript(
+    transcript_id: &str,
+    mut stored: Vec<Value>,
+    mut hints: Vec<StoredSpeakerHint>,
+) -> (Vec<StoredTranscriptWord>, Vec<StoredSpeakerHint>) {
+    for (index, word) in stored.iter_mut().enumerate() {
+        let Some(word) = word.as_object_mut() else {
+            continue;
+        };
+        if word
+            .get("id")
+            .and_then(Value::as_str)
+            .is_none_or(|id| id.is_empty())
+        {
+            word.insert(
+                "id".into(),
+                Value::String(format!("{transcript_id}:{index}")),
+            );
+        }
+        let id = word["id"].as_str().unwrap();
+        if let Some(speaker) = word.get("speaker_index").and_then(Value::as_i64)
+            && !hints.iter().any(|hint| {
+                hint.hint_type == "provider_speaker_index" && hint.word_id.as_deref() == Some(id)
+            })
+        {
+            hints.push(StoredSpeakerHint {
+                id: format!("{id}:provider_speaker_index"),
+                word_id: Some(id.to_owned()),
+                hint_type: "provider_speaker_index".into(),
+                value: serde_json::json!({"speaker_index": speaker,
+                    "channel": word.get("channel").and_then(Value::as_i64).unwrap_or(0)}),
+            });
+        }
+    }
+    (
+        stored
+            .into_iter()
+            .filter_map(|word| serde_json::from_value(word).ok())
+            .collect(),
+        hints,
+    )
+}
+
+pub fn normalize_legacy_batch_channels(
+    source: &str,
+    provider: &str,
+    words: &mut [StoredTranscriptWord],
+    hints: &mut [StoredSpeakerHint],
+) {
+    if source != "batch_transcription"
+        || provider != "google_generative_ai"
+        || words.is_empty()
+        || !words.iter().all(|word| word.channel.unwrap_or(0.0) == 0.0)
+        || words.iter().any(|word| {
+            word.metadata
+                .as_ref()
+                .and_then(|v| v.get("source_channel_restored"))
+                .and_then(Value::as_bool)
+                == Some(true)
+        })
+        || hints.iter().any(|hint| {
+            parse_hint_value_for_render(&hint.value).is_some_and(|v| {
+                v.get("source_channel_restored").and_then(Value::as_bool) == Some(true)
+            })
+        })
+    {
+        return;
+    }
+    for word in words {
+        word.channel = Some(2.0);
+    }
+    for hint in hints {
+        if !matches!(
+            hint.hint_type.as_str(),
+            "provider_speaker_index" | "automatic_speaker_assignment" | "user_speaker_assignment"
+        ) {
+            continue;
+        }
+        if let Some(mut value) = parse_hint_value_for_render(&hint.value)
+            && value.get("channel").and_then(Value::as_f64) == Some(0.0)
+        {
+            value["channel"] = serde_json::json!(2);
+            hint.value = if hint.value.is_string() {
+                Value::String(value.to_string())
+            } else {
+                value
+            };
+        }
+    }
+}
+
+fn mark_restored_source_channel(word: &mut StoredTranscriptWord) {
+    let metadata = word.metadata.get_or_insert_with(|| serde_json::json!({}));
+    if let Some(metadata) = metadata.as_object_mut() {
+        metadata.insert("source_channel_restored".into(), Value::Bool(true));
+    }
+}
+
 fn parse_stored_json_array<T: DeserializeOwned>(json: &str) -> Vec<T> {
     serde_json::from_str::<Vec<Value>>(json)
         .unwrap_or_default()
@@ -447,6 +545,7 @@ fn restore_refined_cluster_channels(
             && let Some(Some(channel)) = channels.get(&speaker.key)
         {
             word.channel = Some(*channel);
+            mark_restored_source_channel(word);
         }
     }
     words
@@ -511,6 +610,7 @@ fn restore_refined_source_channels(
             }
             if matched && channels.len() == 1 {
                 word.channel = channels.first().copied();
+                mark_restored_source_channel(&mut word);
             }
             word
         })
@@ -1062,6 +1162,7 @@ fn normalize_speaker_hint(
     let human_id = value
         .get("human_id")
         .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
         .map(str::to_owned);
 
     if is_speaker_assignment && let Some(human_id) = human_id.as_ref() {
@@ -1390,6 +1491,82 @@ mod tests {
             "channel": 1,
             "speaker_index": 0,
         }))
+    }
+
+    #[test]
+    fn legacy_gemini_channels_keep_object_assignments_and_verified_unlabelled_audio() {
+        for string_value in [false, true] {
+            let mut words = vec![word("a", 0.0, 100.0, 0.0), word("b", 200.0, 300.0, 0.0)];
+            let mut hints = vec![provider(&words[0], 0), provider(&words[1], 1)];
+            hints.push(StoredSpeakerHint { id: "assignment".into(), word_id: Some("b".into()), hint_type: "user_speaker_assignment".into(), value: serde_json::json!({"scope":"speaker", "channel":0, "speaker_index":1, "human_id":"alice"}) });
+            for hint in &mut hints {
+                let value = parse_hint_value_for_render(&hint.value).unwrap();
+                hint.value = if string_value {
+                    Value::String(value.to_string())
+                } else {
+                    value
+                };
+            }
+            normalize_legacy_batch_channels(
+                "batch_transcription",
+                "google_generative_ai",
+                &mut words,
+                &mut hints,
+            );
+            let rendered = render_input_from_stored(Some(0), &words, &hints).unwrap();
+            assert!(rendered.words.iter().all(|word| word.channel == 2));
+            assert!(matches!(
+                rendered.assignments[0].scope,
+                IdentityScope::ChannelSpeaker {
+                    channel: ChannelProfile::MixedCapture,
+                    speaker_index: 1
+                }
+            ));
+        }
+        let original = vec![word("original", 0.0, 100.0, 0.0)];
+        let mut replacement = word("replacement", 0.0, 100.0, 2.0);
+        replacement.text = original[0].text.clone();
+        let mut restored = restore_refined_source_channels(&original, vec![replacement]);
+        assert_eq!(restored[0].channel, Some(0.0));
+        normalize_legacy_batch_channels(
+            "batch_transcription",
+            "google_generative_ai",
+            &mut restored,
+            &mut [],
+        );
+        assert_eq!(restored[0].channel, Some(0.0));
+    }
+
+    #[test]
+    fn legacy_words_keep_inline_speakers_and_explicit_assignments_on_native_render() {
+        let (words, hints) = normalize_stored_transcript(
+            "meeting",
+            vec![
+                serde_json::json!({"text":"Hello", "start_ms":0, "end_ms":100, "channel":0, "speaker_index":0}),
+                serde_json::json!({"id":"guest", "text":"Hi", "start_ms":200, "end_ms":300, "channel":0, "speaker_index":1}),
+            ],
+            parse_stored_speaker_hints(
+                r#"[{"word_id":"guest","type":"user_speaker_assignment","value":{"human_id":"alice"}}]"#,
+            ),
+        );
+        let input = render_input_from_stored(Some(0), &words, &hints).unwrap();
+        assert_eq!(input.words[0].id, "meeting:0");
+        let segments = crate::render_transcript_segments(crate::RenderTranscriptRequest {
+            transcripts: vec![input],
+            humans: vec![crate::RenderTranscriptHuman {
+                human_id: "alice".into(),
+                name: "Alice".into(),
+            }],
+            participant_human_ids: vec![],
+            self_human_id: None,
+            speaker_context: None,
+            preview: None,
+        });
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].text, "Hello");
+        assert_eq!(segments[1].text, "Hi");
+        assert_eq!(segments[1].speaker_label, "Alice");
+        assert_ne!(segments[0].speaker_label, segments[1].speaker_label);
     }
 
     #[test]

@@ -33,10 +33,10 @@ test("mobile capture context survives reload without overwriting desktop interva
   try {
     const desktop = { start_ms: 1, end_ms: 100, shared_microphone: false };
     db.exec(`CREATE TABLE sessions (id TEXT, metadata_json TEXT, updated_at TEXT, deleted_at TEXT);
-      CREATE TABLE transcripts (id TEXT, session_id TEXT, started_at_ms INTEGER, owner_user_id TEXT,
+      CREATE TABLE transcripts (source TEXT, provider TEXT, id TEXT, session_id TEXT, started_at_ms INTEGER, owner_user_id TEXT,
         words_json TEXT, speaker_hints_json TEXT, deleted_at TEXT, created_at TEXT);
       CREATE TABLE transcript_live_deltas (transcript_id TEXT, sequence INTEGER, delta_json TEXT);
-      INSERT INTO transcripts VALUES ('transcript', 'session', 1000, 'john', '[]', '[]', NULL, 'now');`);
+      INSERT INTO transcripts (id, session_id, started_at_ms, owner_user_id, words_json, speaker_hints_json, deleted_at, created_at) VALUES ('transcript', 'session', 1000, 'john', '[]', '[]', NULL, 'now');`);
     db.prepare("INSERT INTO sessions VALUES (?, ?, '', NULL)").run(
       "session",
       JSON.stringify({
