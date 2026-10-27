@@ -25,6 +25,8 @@ on:
       - crates/db-change/**
       - crates/db-core/**
       - crates/db-migrate/**
+      - crates/db-reactive/**
+      - crates/e2ee/**
       - crates/tiptap/**
       - docs/**
       - scripts/publish-anarlog-skill.mjs
@@ -56,6 +58,8 @@ on:
       - crates/db-change/**
       - crates/db-core/**
       - crates/db-migrate/**
+      - crates/db-reactive/**
+      - crates/e2ee/**
       - crates/tiptap/**
       - docs/**
       - scripts/publish-anarlog-skill.mjs
@@ -93,6 +97,7 @@ jobs:
           cargo test --locked -p agent-access
           cargo test --locked -p anarlog-cli
           cargo test --locked -p db-app --lib
+          cargo test --locked -p db-reactive --test e2ee
           cargo test --locked -p db-core --lib
           cargo test --locked -p db-migrate --lib
           cargo test --locked -p tiptap

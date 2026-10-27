@@ -20,7 +20,9 @@ uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
 anlg-cloudsync = { workspace = true }
+anlg-db-app = { workspace = true }
 anlg-db-migrate = { workspace = true }
+anlg-e2ee = { workspace = true }
 
 anyhow = { workspace = true }
 tempfile = { workspace = true }

@@ -132,5 +132,33 @@ async fn seals_and_restores_encrypted_attachment_atomically() {
     .unwrap();
     assert_eq!(std::fs::read(&destination_path).unwrap(), b"old bytes");
     persist_staged_attachment(staged, &destination_path).unwrap();
-    assert_eq!(std::fs::read(destination_path).unwrap(), plaintext);
+    assert_eq!(std::fs::read(&destination_path).unwrap(), plaintext);
+    let mut damaged = std::fs::read(&cache_path).unwrap();
+    let last = damaged.len() - 1;
+    damaged[last] ^= 1;
+    std::fs::write(&cache_path, &damaged).unwrap();
+    assert!(
+        stage_attachment_restore(
+            &key,
+            &context,
+            &cache_path,
+            destination_path.parent().unwrap(),
+            &metadata
+        )
+        .is_err()
+    );
+    assert_eq!(std::fs::read(&destination_path).unwrap(), plaintext);
+    damaged.truncate(damaged.len() / 2);
+    std::fs::write(&cache_path, &damaged).unwrap();
+    assert!(
+        stage_attachment_restore(
+            &key,
+            &context,
+            &cache_path,
+            destination_path.parent().unwrap(),
+            &metadata
+        )
+        .is_err()
+    );
+    assert_eq!(std::fs::read(&destination_path).unwrap(), plaintext);
 }

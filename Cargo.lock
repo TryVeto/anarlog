@@ -4464,10 +4464,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cloudsync",
+ "db-app",
  "db-change",
  "db-core",
  "db-execute",
  "db-migrate",
+ "e2ee",
  "serde",
  "serde_json",
  "specta",
