@@ -78,7 +78,8 @@ cat .github/workflows/web_ci.yaml
 cat .github/workflows/web_cd.yaml
 ```
 
-2. Validate the explicit stable version requested by the user:
+2. Select the stable version using the coordinator's
+   [desktop version policy](../SKILL.md#desktop-version-selection), then validate it:
 
 ```bash
 VERSION=<version>
@@ -88,7 +89,8 @@ node scripts/release-version.mjs --check "$VERSION"
 test -f "packages/changelog/content/desktop/$VERSION.md"
 ```
 
-Stable desktop releases never infer a version. The workflow requires the exact
+The user may supply a version; otherwise use the next patch after the latest
+published stable desktop release. The workflow still requires the selected exact
 stable semantic version to match `release-version.json` and a changelog file.
 The version command also regenerates `apps/watch/apple/Version.xcconfig`;
 commit both desktop version files with the release preparation changes. Expo
@@ -185,7 +187,7 @@ first-attempt run IDs so evidence cannot be mixed across attempts.
 
 The dry-run workflow must:
 
-- use the exact explicit stable version
+- use the selected exact stable version
 - build both Apple Silicon and Intel macOS artifacts
 - build the signed Windows and Linux artifacts for the same version and commit
 - upload a draft CrabNebula release without publishing it

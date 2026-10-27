@@ -20,12 +20,11 @@ publication evidence. Local development can preview stable drafts.
 
 ## Stable version
 
-Determine the next desktop version by inspecting `.github/workflows/desktop_cd.yaml` and running:
-
-```bash
-doxxer --config doxxer.desktop.toml current
-doxxer --config doxxer.desktop.toml next patch
-```
+Follow the coordinator's [desktop version policy](../release-new-version/SKILL.md#desktop-version-selection):
+honor a supplied version or the version already recorded for this release;
+otherwise query published stable desktop releases on GitHub and select the next
+patch. State the selected version and proceed without confirmation. Do not use
+local version files or unpublished tags as the baseline.
 
 Create the new Markdown file in `packages/changelog/content/desktop` for that version.
 Read that directory’s `AGENTS.md`, then run
