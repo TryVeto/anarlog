@@ -1,5 +1,6 @@
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { getVersion } from "@tauri-apps/api/app";
 import {
   act,
   cleanup,
@@ -219,11 +220,18 @@ function makeSession(userId: string): Session {
 }
 
 function SessionProbe() {
-  const { getHeaders, getSessionForRequest, refreshSession, session, signOut } =
-    useAuth();
+  const {
+    getHeaders,
+    getSessionForRequest,
+    isFingerprintSettled,
+    refreshSession,
+    session,
+    signOut,
+  } = useAuth();
   const [requestAccessToken, setRequestAccessToken] = useState("none");
   return (
     <>
+      <div data-testid="headers-settled">{String(isFingerprintSettled)}</div>
       <div data-testid="session">{session?.user.id ?? "none"}</div>
       <div data-testid="access-token">{session?.access_token ?? "none"}</div>
       <div data-testid="authorization">
@@ -800,6 +808,36 @@ describe("AuthProvider", () => {
         "desktop@1.4.33",
       );
     });
+  });
+
+  it("holds trial requests until the app version is in the headers", async () => {
+    const version = deferred<string>();
+    vi.mocked(getVersion).mockImplementationOnce(() => version.promise);
+
+    renderAuthProvider();
+
+    await waitFor(() => {
+      expect(mocks.authCallback).not.toBeNull();
+    });
+    act(() => {
+      mocks.authCallback?.("SIGNED_IN", makeSession("bound-account"));
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("session").textContent).toBe("bound-account");
+    });
+    expect(screen.getByTestId("headers-settled").textContent).toBe("false");
+
+    await act(async () => {
+      version.resolve("1.4.33");
+      await version.promise;
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("headers-settled").textContent).toBe("true");
+    });
+    expect(screen.getByTestId("client-version").textContent).toBe(
+      "desktop@1.4.33",
+    );
   });
 
   it("preserves a secondary-window session after an unsolicited SDK sign-out", async () => {

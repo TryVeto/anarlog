@@ -164,19 +164,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return request;
   }, [currentWindowLabel]);
 
+  // Trial requests wait for this, so settle only once both request headers
+  // (fingerprint and app version) have been resolved.
   useMountEffect(() => {
-    void miscCommands
-      .getFingerprint()
-      .then((result) => {
+    void Promise.allSettled([
+      miscCommands.getFingerprint().then((result) => {
         if (result.status === "ok") {
           setFingerprint(result.data);
         }
-      })
-      .catch(() => {})
-      .finally(() => setIsFingerprintSettled(true));
-    void getVersion()
-      .then(setAppVersion)
-      .catch(() => {});
+      }),
+      getVersion().then(setAppVersion),
+    ]).then(() => setIsFingerprintSettled(true));
   });
 
   const setSessionFromTokens = useCallback(
