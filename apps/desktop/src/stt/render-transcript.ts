@@ -285,7 +285,7 @@ function buildRenderTranscriptRequest(
       words.length > 0 &&
       words.every((word) => word.channel === 0) &&
       !(transcript.words ?? []).some((word) => {
-        const metadata = word.metadata;
+        const metadata = parseHintValue(word.metadata);
         return (
           metadata != null &&
           typeof metadata === "object" &&

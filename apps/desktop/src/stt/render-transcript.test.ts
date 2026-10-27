@@ -191,7 +191,10 @@ describe("buildRenderTranscriptRequestFromRows", () => {
       ...row,
       words: row.words!.map((word) => ({
         ...word,
-        metadata: { source_channel_restored: true },
+        metadata: JSON.stringify({
+          timing: { source: "provider_word" },
+          source_channel_restored: true,
+        }),
       })),
       speaker_hints: [],
     };

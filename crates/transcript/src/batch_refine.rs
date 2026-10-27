@@ -126,9 +126,13 @@ pub fn normalize_legacy_batch_channels(
         || words.iter().any(|word| {
             word.metadata
                 .as_ref()
-                .and_then(|v| v.get("source_channel_restored"))
-                .and_then(Value::as_bool)
-                == Some(true)
+                .and_then(parse_hint_value_for_render)
+                .is_some_and(|metadata| {
+                    metadata
+                        .get("source_channel_restored")
+                        .and_then(Value::as_bool)
+                        == Some(true)
+                })
         })
         || hints.iter().any(|hint| {
             parse_hint_value_for_render(&hint.value).is_some_and(|v| {
@@ -162,9 +166,21 @@ pub fn normalize_legacy_batch_channels(
 }
 
 fn mark_restored_source_channel(word: &mut StoredTranscriptWord) {
-    let metadata = word.metadata.get_or_insert_with(|| serde_json::json!({}));
-    if let Some(metadata) = metadata.as_object_mut() {
-        metadata.insert("source_channel_restored".into(), Value::Bool(true));
+    let serialized = word.metadata.as_ref().is_some_and(Value::is_string);
+    let mut metadata = match word.metadata.as_ref() {
+        Some(value) => match parse_hint_value_for_render(value) {
+            Some(value) => value,
+            None => return,
+        },
+        None => serde_json::json!({}),
+    };
+    if let Some(fields) = metadata.as_object_mut() {
+        fields.insert("source_channel_restored".into(), Value::Bool(true));
+        word.metadata = Some(if serialized {
+            Value::String(metadata.to_string())
+        } else {
+            metadata
+        });
     }
 }
 
@@ -1526,8 +1542,16 @@ mod tests {
         let original = vec![word("original", 0.0, 100.0, 0.0)];
         let mut replacement = word("replacement", 0.0, 100.0, 2.0);
         replacement.text = original[0].text.clone();
-        let mut restored = restore_refined_source_channels(&original, vec![replacement]);
+        replacement.metadata = Some(Value::String(
+            r#"{"timing":{"source":"provider_word"}}"#.into(),
+        ));
+        let restored = restore_refined_source_channels(&original, vec![replacement]);
         assert_eq!(restored[0].channel, Some(0.0));
+        let saved = crate::serialize_batch_transcript_words(&restored).unwrap();
+        let mut restored = parse_stored_transcript_words(&saved);
+        let metadata = parse_hint_value_for_render(restored[0].metadata.as_ref().unwrap()).unwrap();
+        assert_eq!(metadata["timing"]["source"], "provider_word");
+        assert_eq!(metadata["source_channel_restored"], true);
         normalize_legacy_batch_channels(
             "batch_transcription",
             "google_generative_ai",
