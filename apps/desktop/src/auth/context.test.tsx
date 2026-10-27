@@ -181,8 +181,13 @@ vi.mock("@tauri-apps/plugin-os", () => ({
   version: vi.fn(() => "1.0.0"),
 }));
 
+vi.mock("@tauri-apps/api/app", () => ({
+  getVersion: vi.fn(() => Promise.resolve("1.4.33")),
+}));
+
 vi.mock("~/shared/utils", () => ({
   buildWebAppUrl: vi.fn(),
+  CLIENT_VERSION_HEADER: "x-anarlog-client-version",
   DEVICE_FINGERPRINT_HEADER: "x-device-fingerprint",
   id: vi.fn(() => "request-id"),
   REQUEST_ID_HEADER: "x-request-id",
@@ -223,6 +228,9 @@ function SessionProbe() {
       <div data-testid="access-token">{session?.access_token ?? "none"}</div>
       <div data-testid="authorization">
         {getHeaders()?.Authorization ?? "none"}
+      </div>
+      <div data-testid="client-version">
+        {getHeaders()?.["x-anarlog-client-version"] ?? "none"}
       </div>
       <div data-testid="request-access-token">{requestAccessToken}</div>
       <button onClick={() => void refreshSession().catch(() => {})}>
@@ -774,6 +782,24 @@ describe("AuthProvider", () => {
     expect(mocks.signOut).toHaveBeenCalledWith({ scope: "local" });
     expect(mocks.clearAuthStorage).toHaveBeenCalledTimes(1);
     expect(mocks.emitTo).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends the desktop app version with API request headers", async () => {
+    renderAuthProvider();
+
+    await waitFor(() => {
+      expect(mocks.authCallback).not.toBeNull();
+    });
+
+    act(() => {
+      mocks.authCallback?.("SIGNED_IN", makeSession("bound-account"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("client-version").textContent).toBe(
+        "desktop@1.4.33",
+      );
+    });
   });
 
   it("preserves a secondary-window session after an unsolicited SDK sign-out", async () => {
