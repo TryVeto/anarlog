@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,6 +26,62 @@ const cnAssetId = "01KVDB8KPSKMQ5X3SJ0ANF6943";
 const cnSha256 =
   "760b11d1ab9326dc78068ac8ef450685ea116e329903b14d94a5133641a54128";
 const cnVersion = "cn 0.13.2";
+
+test("a rejected Store package update cannot publish the previous submission", async (t) => {
+  const workflow = await readFile(
+    ".github/workflows/desktop_store_publish.yaml",
+    "utf8",
+  );
+  const step = workflow.slice(
+    workflow.indexOf("name: Submit Microsoft Store update"),
+  );
+  const block = step.match(/        run: \|\n((?:          .*\n|\n)+)/);
+  assert.ok(block, "missing Store submission script");
+  const root = await mkdtemp(path.join(os.tmpdir(), "store-submission-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const stub = path.join(root, "msstore");
+  await writeFile(
+    stub,
+    `#!/bin/sh
+case "$1 $2" in
+  "submission update") exit 23 ;;
+  "submission publish") touch published ;;
+esac
+exit 0
+`,
+  );
+  await chmod(stub, 0o755);
+  await writeFile(
+    path.join(root, "microsoft-store-package.json"),
+    '{"packages":[]}',
+  );
+  const script = path.join(root, "submit.ps1");
+  await writeFile(script, block[1].replace(/^          /gm, ""));
+  const result = spawnSync(
+    "pwsh",
+    ["-NoProfile", "-NonInteractive", "-File", script],
+    {
+      cwd: root,
+      env: {
+        ...process.env,
+        PATH: `${root}${path.delimiter}${process.env.PATH}`,
+        AZURE_AD_APPLICATION_CLIENT_ID: "fixture",
+        AZURE_AD_APPLICATION_SECRET: "fixture",
+        AZURE_AD_TENANT_ID: "fixture",
+        MICROSOFT_STORE_PRODUCT_ID: "fixture",
+        SELLER_ID: "fixture",
+      },
+      encoding: "utf8",
+      timeout: 30_000,
+    },
+  );
+  assert.ifError(result.error);
+  assert.equal(result.signal, null);
+  assert.notEqual(result.status, 0, result.stdout + result.stderr);
+  await assert.rejects(readFile(path.join(root, "published")), {
+    code: "ENOENT",
+  });
+});
 
 function createDesktopRelease({
   includeLinux = true,
