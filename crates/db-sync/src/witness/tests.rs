@@ -1749,6 +1749,137 @@ async fn accepted_sync_recovers_a_lost_receipt_without_losing_a_newer_offline_ed
 }
 
 #[tokio::test]
+async fn cloud_acceptance_preserves_offline_notes_and_speaker_conflicts_in_either_reconnect_order()
+{
+    for order in [[0, 1], [1, 0]] {
+        let server = MockServer::start().await;
+        let state = Arc::new(Mutex::new(AcceptedServer::default()));
+        Mock::given(path("/sync/e2ee/witness/user-a/accepted"))
+            .respond_with(AcceptedResponder(state))
+            .mount(&server)
+            .await;
+        let client = E2eeWitnessClient::new(
+            E2eeWitnessConfig {
+                endpoint: format!("{}/sync/e2ee/witness/user-a", server.uri()),
+                access_token: "token".into(),
+            },
+            "user-a",
+        )
+        .unwrap();
+        let key = anlg_e2ee::RecoveryKey::generate()
+            .unwrap()
+            .workspace_key("user-a")
+            .unwrap();
+        let keys = HashMap::from([("user-a".to_string(), key.clone().into())]);
+        let devices = [
+            anlg_db_core::Db::connect_memory_plain().await.unwrap(),
+            anlg_db_core::Db::connect_memory_plain().await.unwrap(),
+        ];
+        for db in &devices {
+            anlg_db_app::prepare_schema(db).await.unwrap();
+        }
+        let document = |first: &str, second: &str| {
+            json!({"type":"doc","content":
+            ([first, second].map(|text| json!({"type":"paragraph","content":[{"type":"text","text":text}]})))}).to_string()
+        };
+        let hints = |human: &str| {
+            json!([{"id":"assignment","word_id":"word","type":"user_speaker_assignment","value":{"human_id":human,"scope":"segment","word_ids":["word"]}}]).to_string()
+        };
+        let words =
+            json!([{"id":"word","text":"Keep this","start_ms":100,"end_ms":300,"channel":2}])
+                .to_string();
+        sqlx::query("INSERT INTO sessions(id,workspace_id,owner_user_id,title) VALUES('s','user-a','user-a','Meeting')").execute(devices[0].pool()).await.unwrap();
+        sqlx::query("INSERT INTO session_documents(id,workspace_id,session_id,kind,body_format,body) VALUES('s','user-a','s','note','prosemirror_json',?)")
+            .bind(document("first", "second")).execute(devices[0].pool()).await.unwrap();
+        sqlx::query("INSERT INTO transcripts(id,workspace_id,session_id,words_json,speaker_hints_json) VALUES('t','user-a','s',?,?)")
+            .bind(&words).bind(hints("original")).execute(devices[0].pool()).await.unwrap();
+        anlg_db_app::encrypt_e2ee_replica_changes(devices[0].pool(), &keys)
+            .await
+            .unwrap();
+        for db in &devices {
+            client.initialize(db.pool(), &key).await.unwrap();
+            anlg_db_app::apply_received_e2ee_replica_changes_with_witness(db.pool(), &keys, true)
+                .await
+                .unwrap();
+        }
+        // Both devices edit the same accepted baseline while disconnected.
+        for (index, db) in devices.iter().enumerate() {
+            let body = if index == 0 {
+                document("desktop edit", "second")
+            } else {
+                document("first", "phone edit")
+            };
+            sqlx::query("UPDATE session_documents SET body = ? WHERE id = 's'")
+                .bind(body)
+                .execute(db.pool())
+                .await
+                .unwrap();
+            sqlx::query("UPDATE transcripts SET speaker_hints_json = ? WHERE id = 't'")
+                .bind(hints(if index == 0 { "alice" } else { "bob" }))
+                .execute(db.pool())
+                .await
+                .unwrap();
+            anlg_db_app::encrypt_e2ee_replica_changes(db.pool(), &keys)
+                .await
+                .unwrap();
+        }
+        for index in order {
+            client
+                .publish_and_refresh(devices[index].pool(), &key)
+                .await
+                .unwrap();
+        }
+        let winner = if order[1] == 0 { "alice" } else { "bob" };
+        let loser = if order[0] == 0 { "alice" } else { "bob" };
+        // A fresh replica must reconstruct the same accepted state without device clocks.
+        let fresh = anlg_db_core::Db::connect_memory_plain().await.unwrap();
+        anlg_db_app::prepare_schema(&fresh).await.unwrap();
+        client.initialize(fresh.pool(), &key).await.unwrap();
+        for db in [&devices[0], &devices[1], &fresh] {
+            client.refresh(db.pool(), &key).await.unwrap();
+            anlg_db_app::apply_received_e2ee_replica_changes_with_witness(db.pool(), &keys, true)
+                .await
+                .unwrap();
+            let (body, stored_words, stored_hints): (String, String, String) = sqlx::query_as(
+                "SELECT d.body,t.words_json,t.speaker_hints_json FROM session_documents d JOIN transcripts t ON t.session_id=d.session_id WHERE d.id='s' AND d.deleted_at IS NULL AND t.deleted_at IS NULL")
+                .fetch_one(db.pool()).await.unwrap();
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&body).unwrap(),
+                serde_json::from_str::<serde_json::Value>(&document("desktop edit", "phone edit"))
+                    .unwrap()
+            );
+            assert_eq!(stored_words, words);
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&stored_hints).unwrap(),
+                serde_json::from_str::<serde_json::Value>(&hints(winner)).unwrap()
+            );
+            assert!(
+                anlg_db_app::pending_e2ee_cloud_batch(db.pool(), "user-a", false)
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        let conflicts = anlg_db_app::list_e2ee_field_conflicts(
+            devices[order[1]].pool(),
+            "transcripts",
+            "t",
+            false,
+        )
+        .await
+        .unwrap();
+        assert!(
+            conflicts
+                .iter()
+                .any(|c| c.field_name == "speaker_hints_json"
+                    && serde_json::from_str::<serde_json::Value>(&c.value_json).unwrap()
+                        == json!(hints(loser))),
+            "the displaced assignment must remain recoverable"
+        );
+    }
+}
+
+#[tokio::test]
 async fn running_legacy_clients_reprobe_after_cloud_cutover() {
     for pending_edit in [false, true] {
         let server = MockServer::start().await;

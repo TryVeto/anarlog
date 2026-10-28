@@ -26,6 +26,7 @@ on:
       - crates/db-core/**
       - crates/db-migrate/**
       - crates/db-reactive/**
+      - crates/db-sync/**
       - crates/e2ee/**
       - crates/tiptap/**
       - docs/**
@@ -59,6 +60,7 @@ on:
       - crates/db-core/**
       - crates/db-migrate/**
       - crates/db-reactive/**
+      - crates/db-sync/**
       - crates/e2ee/**
       - crates/tiptap/**
       - docs/**
@@ -98,6 +100,7 @@ jobs:
           cargo test --locked -p anarlog-cli
           cargo test --locked -p db-app --lib
           cargo test --locked -p db-reactive --test e2ee
+          cargo test --locked -p db-sync
           cargo test --locked -p db-core --lib
           cargo test --locked -p db-migrate --lib
           cargo test --locked -p tiptap
