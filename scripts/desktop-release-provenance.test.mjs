@@ -408,3 +408,86 @@ test("binds local GitHub release assets to exact manifest IDs and bytes", async 
     /Local asset IDs do not match the provenance manifest/,
   );
 });
+
+test("Store inspection cannot mutate submissions or retry rate limits", async (t) => {
+  const workflow = await readFile(
+    ".github/workflows/desktop_store_status.yaml",
+    "utf8",
+  );
+  const block = workflow.match(/        run: \|\n((?:          .*\n|\n)+)/);
+  assert.ok(block, "missing Store inspection script");
+  const root = await mkdtemp(path.join(os.tmpdir(), "store-status-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const script = path.join(root, "inspect.ps1");
+  await writeFile(
+    script,
+    `function Invoke-RestMethod {
+  param($Method, $Uri, $Body, $TimeoutSec)
+  if ($Method -ne 'Post' -or $Uri -ne 'https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/oauth2/v2.0/token') {
+    Set-Content mutation 'unexpected request'
+    throw 'Unexpected authentication request'
+  }
+  return @{ access_token = 'test-token' }
+}
+function Invoke-WebRequest {
+  param($Method, $Uri, $Headers, $TimeoutSec, [switch]$SkipHttpErrorCheck)
+  if ($Method -ne 'Get') {
+    Set-Content mutation 'Store mutation attempted'
+    throw 'Store mutation attempted'
+  }
+  if (Test-Path rate-limited) {
+    Set-Content retried 'request after rate limit'
+    throw 'Retried rate limit'
+  }
+  if ($env:TEST_RATE_LIMIT -eq 'true') {
+    Set-Content rate-limited '429'
+    return @{ StatusCode = 429; Headers = @{ 'Retry-After' = '600' }; Content = '{}' }
+  }
+  return @{ StatusCode = 200; Headers = @{}; Content = (@{ isSuccess = $true; responseData = @{ endpoint = $Uri } } | ConvertTo-Json) }
+}
+${block[1].replace(/^          /gm, "")}`,
+  );
+  for (const rateLimit of [false, true]) {
+    const result = spawnSync("pwsh", ["-NoProfile", "-File", script], {
+      cwd: root,
+      encoding: "utf8",
+      timeout: 15_000,
+      env: {
+        ...process.env,
+        SUBMISSION_ID: "123",
+        MICROSOFT_STORE_PRODUCT_ID: "22222222-2222-2222-2222-222222222222",
+        AZURE_AD_TENANT_ID: "11111111-1111-1111-1111-111111111111",
+        TEST_RATE_LIMIT: String(rateLimit),
+      },
+    });
+    assert.ifError(result.error);
+    await assert.rejects(readFile(path.join(root, "mutation")), {
+      code: "ENOENT",
+    });
+    await assert.rejects(readFile(path.join(root, "retried")), {
+      code: "ENOENT",
+    });
+    if (rateLimit) {
+      assert.notEqual(result.status, 0, result.stdout);
+      assert.equal(
+        await readFile(path.join(root, "rate-limited"), "utf8"),
+        "429\n",
+      );
+    } else {
+      assert.equal(result.status, 0, result.stderr);
+      const endpoints = [
+        ...result.stdout.matchAll(/"endpoint": "([^"]+)"/g),
+      ].map((match) => match[1]);
+      const base =
+        "https://api.store.microsoft.com/submission/v1/product/22222222-2222-2222-2222-222222222222";
+      assert.deepEqual(
+        endpoints.sort(),
+        [
+          `${base}/packages`,
+          `${base}/status`,
+          `${base}/submission/123/status`,
+        ].sort(),
+      );
+    }
+  }
+});
