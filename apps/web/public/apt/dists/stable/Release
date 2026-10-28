@@ -2,23 +2,23 @@ Origin: Anarlog
 Label: Anarlog
 Suite: stable
 Codename: stable
-Version: 1.4.32
-Date: Sun, 25 Oct 2026 16:45:21 GMT
+Version: 1.4.33
+Date: Wed, 28 Oct 2026 01:53:01 GMT
 Architectures: amd64 arm64
 Components: main
 Description: Anarlog stable desktop releases
 MD5Sum:
- 7a15b81bf6b6c23830b0664d33a008e6 638 main/binary-amd64/Packages
- b2a582e939d917d6eeb6c7d887c6a580 431 main/binary-amd64/Packages.gz
- 52b1cba7bbae54e5f9e04b4c9759dc6a 638 main/binary-arm64/Packages
- e1ee9d645cb8623afe36758b192d2951 430 main/binary-arm64/Packages.gz
+ d77be286bc1d52e1b91869b36d2201f5 638 main/binary-amd64/Packages
+ 9dcc137fb29f8541cbaf2160f34f223e 430 main/binary-amd64/Packages.gz
+ 3c20d7e194bbcbd59a372df6c295ccab 638 main/binary-arm64/Packages
+ 2fc59b95e44b0f3b4af5c64a50b5dd2a 433 main/binary-arm64/Packages.gz
 SHA1:
- 44e12bca925b71ef28affb8225b5ad5a1b512221 638 main/binary-amd64/Packages
- dae42db2e48981858b9ab5dd90df1fa24bea0eb1 431 main/binary-amd64/Packages.gz
- ee289b69cebf04faa4d105f9851b995eda0735f1 638 main/binary-arm64/Packages
- df62c6b6967d0cbcea06fde3aa28a11ec30f6df7 430 main/binary-arm64/Packages.gz
+ 1110aa0cbc2d28bc5abdfbe7a13efe607b15a711 638 main/binary-amd64/Packages
+ d8002eda115f22d3bb34a2258242742dfe7451d7 430 main/binary-amd64/Packages.gz
+ 66f881020f0481dddadb3ff4f0ab469cebf0a1a9 638 main/binary-arm64/Packages
+ b0b837d09952434efc5a44d38c61bff58b55d652 433 main/binary-arm64/Packages.gz
 SHA256:
- 93db2dc8603a24ce65777df900f5d5317db975454388737a3fa935e0b86cb675 638 main/binary-amd64/Packages
- b04a85bc43577520c05a518fb837e0fea159f82d26051cec12514248eeb6db01 431 main/binary-amd64/Packages.gz
- 387c74818fb7e4e3645d248293131e015389af752f8347fbf371d49a9db7b325 638 main/binary-arm64/Packages
- a8ae6ebea51c88983d988e59f7a2c8cbb4d6ef08bfe2dfb74ee071e4aa6992e9 430 main/binary-arm64/Packages.gz
+ ce417ad39a2f4c7816665d40d45b3fb4f34ddf18c6f6dc265ef445e850abbcb9 638 main/binary-amd64/Packages
+ 9d9380704a66eba00e2d62bb4d4c6743e7ed9cc6bb7f5ba04cb9986ea0dbfcd0 430 main/binary-amd64/Packages.gz
+ d7e23a3686a5a7d5b61784780b3e4a5775de38a1176a122ab35938fa1065463b 638 main/binary-arm64/Packages
+ 273792c9689cf334051b6ce143066f3b058381658645f24c59bb5ec633017ff6 433 main/binary-arm64/Packages.gz
