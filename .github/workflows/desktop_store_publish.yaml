@@ -238,10 +238,19 @@ jobs:
             --sellerId $env:SELLER_ID `
             --clientId $env:AZURE_AD_APPLICATION_CLIENT_ID `
             --clientSecret $env:AZURE_AD_APPLICATION_SECRET
+          if ($LASTEXITCODE -ne 0) {
+            throw "Microsoft Store CLI configuration failed with exit code $LASTEXITCODE"
+          }
 
           $updatedPackage = Get-Content -Raw "microsoft-store-package.json"
           msstore submission update $env:MICROSOFT_STORE_PRODUCT_ID $updatedPackage
+          if ($LASTEXITCODE -ne 0) {
+            throw "Microsoft Store package update failed with exit code $LASTEXITCODE"
+          }
           msstore submission publish $env:MICROSOFT_STORE_PRODUCT_ID
+          if ($LASTEXITCODE -ne 0) {
+            throw "Microsoft Store submission publication failed with exit code $LASTEXITCODE"
+          }
       - name: Summarize Microsoft Store release
         shell: pwsh
         env:
