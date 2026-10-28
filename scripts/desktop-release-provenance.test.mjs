@@ -44,7 +44,7 @@ test("a rejected Store package update cannot publish the previous submission", a
     stub,
     `#!/bin/sh
 case "$1 $2" in
-  "submission update") exit 23 ;;
+  "submission update") touch update-rejected; exit 23 ;;
   "submission publish") touch published ;;
 esac
 exit 0
@@ -77,6 +77,7 @@ exit 0
   );
   assert.ifError(result.error);
   assert.equal(result.signal, null);
+  await readFile(path.join(root, "update-rejected"));
   assert.notEqual(result.status, 0, result.stdout + result.stderr);
   await assert.rejects(readFile(path.join(root, "published")), {
     code: "ENOENT",
