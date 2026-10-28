@@ -399,7 +399,21 @@ async fn tracked_table_cleanup_interrupt_drains_before_local_write() {
 ))]
 #[tokio::test]
 async fn populated_table_init_interrupt_drains_before_local_write() {
-    let db = Arc::new(Db::connect_memory().await.unwrap());
+    // Interrupted initialization may retire a connection; app data must survive
+    // that replacement, which an in-memory database cannot model.
+    let directory = tempfile::tempdir().unwrap();
+    let db_path = directory.path().join("init-interrupt.db");
+    let db = Arc::new(
+        Db::open(crate::DbOpenOptions {
+            storage: crate::DbStorage::Local(&db_path),
+            cloudsync_enabled: true,
+            journal_mode_wal: true,
+            foreign_keys: true,
+            max_connections: Some(1),
+        })
+        .await
+        .unwrap(),
+    );
     sqlx::query(
         "CREATE TABLE items (
             id TEXT PRIMARY KEY NOT NULL,
@@ -469,6 +483,11 @@ async fn populated_table_init_interrupt_drains_before_local_write() {
         "immediate local write remained blocked after native CloudSync table initialization interruption",
     )
     .unwrap();
+    let preserved: i64 = sqlx::query_scalar("SELECT count(*) FROM items")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    assert_eq!(preserved, 100001, "interruption lost existing local rows");
     assert!(tracking_schema(&db).await.is_empty());
     db.cloudsync_init("items", None, None).await.unwrap();
     let before: i64 = sqlx::query_scalar("SELECT count(*) FROM items_cloudsync")
